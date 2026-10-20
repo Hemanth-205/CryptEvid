@@ -42,6 +42,7 @@ import {
 } from 'lucide-react';
 import api, { caseApi, evidenceApi, reportApi, diaryApi } from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { formatIsoDateSafe, formatLocalDateSafe } from '../utils/date';
 import type { 
   Case, 
   Evidence, 
@@ -752,13 +753,13 @@ export const CaseDetail: React.FC = () => {
           <div>
             <span className="text-slate-400 block text-[10px] font-bold">LAST MODIFIED (UTC)</span>
             <span className="text-slate-900">
-              {caseData.updated_at ? new Date(caseData.updated_at).toISOString().replace('T', ' ').substring(0, 16) : 'N/A'}
+              {formatIsoDateSafe(caseData.updated_at, 16)}
             </span>
           </div>
           <div>
             <span className="text-slate-400 block text-[10px] font-bold">REGISTERED (UTC)</span>
             <span className="text-slate-900">
-              {new Date(caseData.created_at).toISOString().replace('T', ' ').substring(0, 16)}
+              {formatIsoDateSafe(caseData.created_at, 16)}
             </span>
           </div>
         </div>
@@ -858,19 +859,19 @@ export const CaseDetail: React.FC = () => {
               <div className="p-3.5 rounded-lg bg-slate-50 border border-slate-200 shadow-2xs">
                 <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block mb-1">Registration Date (UTC)</span>
                 <span className="text-slate-800">
-                  {new Date(caseData.created_at).toISOString().replace('T', ' ').substring(0, 19)}
+                  {formatIsoDateSafe(caseData.created_at, 19)}
                 </span>
               </div>
               <div className="p-3.5 rounded-lg bg-slate-50 border border-slate-200 shadow-2xs">
                 <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block mb-1">Last Modified (UTC)</span>
                 <span className="text-slate-800">
-                  {caseData.updated_at ? new Date(caseData.updated_at).toISOString().replace('T', ' ').substring(0, 19) : 'N/A'}
+                  {formatIsoDateSafe(caseData.updated_at, 19)}
                 </span>
               </div>
               <div className="p-3.5 rounded-lg bg-slate-50 border border-slate-200 shadow-2xs">
                 <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block mb-1">Closure Status</span>
                 <span className="text-slate-800">
-                  {caseData.closed_at ? `Closed on ${new Date(caseData.closed_at).toLocaleDateString()}` : 'Active Ongoing Investigation'}
+                  {caseData.closed_at ? `Closed on ${formatLocalDateSafe(caseData.closed_at)}` : 'Active Ongoing Investigation'}
                 </span>
               </div>
               <div className="p-3.5 rounded-lg bg-slate-50 border border-slate-200 shadow-2xs">
@@ -965,7 +966,7 @@ export const CaseDetail: React.FC = () => {
                   <div key={idx} className="p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-1 text-xs shadow-2xs">
                     <div className="flex items-center justify-between text-[11px] text-slate-500 font-mono">
                       <span className="font-semibold text-slate-700">{note.author_name || note.author || 'Investigator'}</span>
-                      <span>{note.timestamp || note.created_at ? new Date(note.timestamp || note.created_at!).toLocaleString() : ''}</span>
+                      <span>{note.timestamp || note.created_at ? formatLocalDateSafe(note.timestamp || note.created_at) : ''}</span>
                     </div>
                     <p className="text-slate-800 font-sans leading-relaxed whitespace-pre-wrap">
                       {note.content}
@@ -1249,7 +1250,7 @@ export const CaseDetail: React.FC = () => {
                     filteredCaseCustody.map((evt: any) => (
                       <tr key={evt._id || evt.event_id}>
                         <td className="text-slate-500 whitespace-nowrap text-[11px] font-mono">
-                          {evt.timestamp ? new Date(evt.timestamp).toISOString().replace('T', ' ').substring(0, 19) + ' UTC' : 'N/A'}
+                          {evt.timestamp ? `${formatIsoDateSafe(evt.timestamp, 19)} UTC` : 'N/A'}
                         </td>
                         <td className="whitespace-nowrap">
                           <span className={`ws-badge ${getActionBadgeClass(evt.action)} text-[10px]`}>
@@ -1321,7 +1322,7 @@ export const CaseDetail: React.FC = () => {
                   </span>
                   <span className="text-slate-400 text-xs">|</span>
                   <span className="font-mono text-xs text-slate-300">
-                    Case: <strong className="text-white">{caseData.case_number}</strong>
+                    Case: <strong className="text-white">{caseData?.case_number || caseId || 'N/A'}</strong>
                   </span>
                   <span className="text-slate-400 text-xs">|</span>
                   <span className="font-mono text-xs text-amber-300">
@@ -1729,7 +1730,7 @@ export const CaseDetail: React.FC = () => {
                           </span>
                         </span>
                         <span className="text-slate-300">|</span>
-                        <span>Logged: {new Date(entry.created_at).toISOString().replace('T', ' ').substring(0, 16)} UTC</span>
+                        <span>Logged: {formatIsoDateSafe(entry.created_at, 16)} UTC</span>
                       </div>
 
                       {/* Cryptographic Seal & Verification Action */}
@@ -2218,7 +2219,7 @@ export const CaseDetail: React.FC = () => {
                   <div key={idx} className="ws-panel-subtle p-3 space-y-1 font-mono text-xs">
                     <div className="flex items-center justify-between">
                       <span className="text-amber-600 font-bold">{evt.action}</span>
-                      <span className="text-slate-400 text-[10px]">{new Date(evt.timestamp).toLocaleString()}</span>
+                      <span className="text-slate-400 text-[10px]">{formatLocalDateSafe(evt.timestamp)}</span>
                     </div>
                     <div className="text-xs text-slate-900 font-sans">{evt.details}</div>
                     <div className="flex items-center justify-between text-[10px] text-slate-500 pt-1 border-t border-slate-100">
@@ -2265,7 +2266,7 @@ export const CaseDetail: React.FC = () => {
                     Record Investigation Diary Entry
                   </h3>
                   <p className="text-[11px] text-slate-500 font-mono">
-                    BNSS Section 192 Digital Case Diary // Case: {caseData.case_number}
+                    BNSS Section 192 Digital Case Diary // Case: {caseData?.case_number || caseId || 'N/A'}
                   </p>
                 </div>
               </div>
@@ -2613,7 +2614,7 @@ export const CaseDetail: React.FC = () => {
                     Amend Diary Entry: {amendingEntry.entry_code}
                   </h3>
                   <p className="text-[11px] text-slate-500 font-mono">
-                    BNSS Section 192 Amendment Protocol // Case: {caseData.case_number}
+                    BNSS Section 192 Amendment Protocol // Case: {caseData?.case_number || caseId || 'N/A'}
                   </p>
                 </div>
               </div>
@@ -2940,7 +2941,7 @@ export const CaseDetail: React.FC = () => {
                     Amendment Audit Trail: {historyEntry.entry_code}
                   </h3>
                   <p className="text-[11px] text-slate-500 font-mono">
-                    Baseline Entry Created: {new Date(historyEntry.created_at).toISOString().replace('T', ' ').substring(0, 16)} UTC by {historyEntry.created_by_name}
+                    Baseline Entry Created: {formatIsoDateSafe(historyEntry.created_at, 16)} UTC by {historyEntry.created_by_name}
                   </p>
                 </div>
               </div>
@@ -2981,7 +2982,7 @@ export const CaseDetail: React.FC = () => {
                           </span>
                         </div>
                         <span className="text-slate-400 text-[11px]">
-                          {new Date(amend.timestamp).toISOString().replace('T', ' ').substring(0, 16)} UTC
+                          {formatIsoDateSafe(amend.timestamp, 16)} UTC
                         </span>
                       </div>
 

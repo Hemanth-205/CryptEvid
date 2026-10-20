@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { caseApi, reportApi } from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { formatIsoDateSafe } from '../utils/date';
 import type { Case } from '../types';
 
 export const ReportsPage: React.FC = () => {
@@ -255,7 +256,7 @@ export const ReportsPage: React.FC = () => {
                       {report.generated_by_name}
                     </td>
                     <td className="text-slate-500 whitespace-nowrap font-mono text-xs">
-                      {report.generated_at ? new Date(report.generated_at).toISOString().replace('T', ' ').substring(0, 19) + ' UTC' : 'N/A'}
+                      {report.generated_at ? `${formatIsoDateSafe(report.generated_at, 19)} UTC` : 'N/A'}
                     </td>
                     <td>
                       <div className="flex items-center gap-1.5">

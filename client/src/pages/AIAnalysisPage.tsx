@@ -20,6 +20,7 @@ import {
   Compass
 } from 'lucide-react';
 import { caseApi, analyticsApi, reportApi } from '../services/api';
+import { formatLocalDateSafe } from '../utils/date';
 import type {
   Case,
   RiskScoreResponse,
@@ -430,7 +431,7 @@ export const AIAnalysisPage: React.FC = () => {
                   </span>
                   <span>•</span>
                   <span className="text-slate-600">
-                    {aiAnalysis?.generated_at ? new Date(aiAnalysis.generated_at).toLocaleString() : 'Live Analysis'}
+                    {aiAnalysis?.generated_at ? formatLocalDateSafe(aiAnalysis.generated_at) : 'Live Analysis'}
                   </span>
                 </div>
                 <div className="flex items-center gap-1.5 text-emerald-800 font-semibold">

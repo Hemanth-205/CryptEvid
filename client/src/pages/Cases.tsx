@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { caseApi } from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { formatIsoDateSafe } from '../utils/date';
 import type { Case, CaseStats, CasePriority, CaseType, InvestigatorOption } from '../types';
 
 export const Cases: React.FC = () => {
@@ -128,13 +129,17 @@ export const Cases: React.FC = () => {
       const newCase = await caseApi.createCase(payload);
       setIsCreateOpen(false);
       resetForm();
-      setActionSuccess(`Case ${newCase.case_number} registered successfully.`);
+      const caseNum = newCase?.case_number || 'New Case';
+      setActionSuccess(`Case ${caseNum} registered successfully.`);
       setTimeout(() => setActionSuccess(null), 4000);
       fetchData();
-      navigate(`/cases/${newCase._id}`);
+      const targetId = newCase?._id || newCase?.id;
+      if (targetId) {
+        navigate(`/cases/${targetId}`);
+      }
     } catch (err: any) {
       console.error('Case creation failed:', err);
-      setFormError(err.response?.data?.detail || 'Failed to create case dossier.');
+      setFormError(err.response?.data?.detail || err.message || 'Failed to create case dossier.');
     } finally {
       setFormSubmitting(false);
     }
@@ -426,7 +431,7 @@ export const Cases: React.FC = () => {
                     {c.assigned_investigator_name || 'Unassigned'}
                   </td>
                   <td className="font-mono text-[11px] text-slate-500 whitespace-nowrap">
-                    {new Date(c.created_at).toISOString().replace('T', ' ').substring(0, 16)}
+                    {formatIsoDateSafe(c.created_at, 16)}
                   </td>
                   <td className="text-right whitespace-nowrap">
                     <div className="flex items-center justify-end gap-1.5">

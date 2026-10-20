@@ -7,7 +7,19 @@ export const getApiBaseUrl = (): string => {
       const trimmed = custom.trim();
       return trimmed.endsWith('/api') ? trimmed : `${trimmed.replace(/\/$/, '')}/api`;
     }
+
+    if (import.meta.env.VITE_API_URL) {
+      const rawUrl = import.meta.env.VITE_API_URL;
+      return rawUrl.endsWith('/api') ? rawUrl : `${rawUrl.replace(/\/$/, '')}/api`;
+    }
+
+    // Hosted domain fallback: if not on localhost, use current origin /api
+    const hostname = window.location.hostname;
+    if (hostname && hostname !== 'localhost' && hostname !== '127.0.0.1') {
+      return `${window.location.origin}/api`;
+    }
   }
+
   const rawUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
   return rawUrl.endsWith('/api') ? rawUrl : `${rawUrl.replace(/\/$/, '')}/api`;
 };

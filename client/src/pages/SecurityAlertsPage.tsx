@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { securityApi } from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { formatIsoDateSafe } from '../utils/date';
 
 interface SecurityAlert {
   alert_id: string;
@@ -322,7 +323,7 @@ export const SecurityAlertsPage: React.FC = () => {
                       {alert.status}
                     </span>
                     <span className="text-xs text-slate-500 font-mono">
-                      {new Date(alert.timestamp).toISOString().replace('T', ' ').substring(0, 19)} UTC
+                      {formatIsoDateSafe(alert.timestamp, 19)} UTC
                     </span>
                   </div>
                 </div>
@@ -411,7 +412,7 @@ export const SecurityAlertsPage: React.FC = () => {
                       </span>
                     </div>
                     <div className="text-slate-500 font-mono text-[11px]">
-                      {new Date(event.timestamp).toISOString().replace('T', ' ').substring(0, 19)} UTC
+                      {formatIsoDateSafe(event.timestamp, 19)} UTC
                     </div>
                   </div>
 

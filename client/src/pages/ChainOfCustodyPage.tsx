@@ -13,6 +13,7 @@ import {
   Cpu
 } from 'lucide-react';
 import { evidenceApi, caseApi } from '../services/api';
+import { formatIsoDateSafe } from '../utils/date';
 import type { Case } from '../types';
 
 export const ChainOfCustodyPage: React.FC = () => {
@@ -273,7 +274,7 @@ export const ChainOfCustodyPage: React.FC = () => {
                 {filteredEvents.map((evt) => (
                   <tr key={evt._id}>
                     <td className="text-slate-500 whitespace-nowrap text-xs font-mono">
-                      {evt.timestamp ? new Date(evt.timestamp).toISOString().replace('T', ' ').substring(0, 19) + ' UTC' : 'N/A'}
+                      {evt.timestamp ? `${formatIsoDateSafe(evt.timestamp, 19)} UTC` : 'N/A'}
                     </td>
                     <td className="whitespace-nowrap font-bold">
                       <Link

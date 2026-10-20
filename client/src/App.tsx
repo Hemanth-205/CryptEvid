@@ -6,6 +6,7 @@ import { ThemeProvider } from './context/ThemeContext';
 import LandingPage from './pages/LandingPage';
 import Login from './pages/Login';
 import HorizontalNavbar from './components/HorizontalNavbar';
+import ErrorBoundary from './components/ErrorBoundary';
 import Cases from './pages/Cases';
 import CaseDetail from './pages/CaseDetail';
 import EvidenceGraphPage from './pages/EvidenceGraphPage';
@@ -387,23 +388,25 @@ const DashboardLayout = () => {
 
       {/* Main Content Area - Full width with max bound */}
       <main className="flex-1 w-full max-w-[1920px] mx-auto p-4 sm:p-6 lg:p-8 relative z-10">
-        <Routes>
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
-          <Route path="/dashboard" element={<DashboardView />} />
-          <Route path="/cases" element={<Cases />} />
-          <Route path="/cases/:caseId" element={<CaseDetail />} />
-          <Route path="/evidence" element={<Navigate to="/cases" replace />} />
-          <Route path="/graph" element={<EvidenceGraphPage />} />
-          <Route path="/ai-analysis" element={<AIAnalysisPage />} />
-          <Route path="/ai-analysis/:caseId" element={<AIAnalysisPage />} />
-          <Route path="/security-alerts" element={<SecurityAlertsPage />} />
-          <Route path="/reports" element={<ReportsPage />} />
-          <Route path="/custody" element={<ChainOfCustodyPage />} />
-          <Route path="/logs" element={<Navigate to="/custody" replace />} />
-          <Route path="/devices" element={<DevicesView />} />
-          <Route path="/settings" element={<Settings />} />
-          <Route path="*" element={<Navigate to="/dashboard" replace />} />
-        </Routes>
+        <ErrorBoundary fallbackTitle="Forensic Module Error">
+          <Routes>
+            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/dashboard" element={<DashboardView />} />
+            <Route path="/cases" element={<Cases />} />
+            <Route path="/cases/:caseId" element={<CaseDetail />} />
+            <Route path="/evidence" element={<Navigate to="/cases" replace />} />
+            <Route path="/graph" element={<EvidenceGraphPage />} />
+            <Route path="/ai-analysis" element={<AIAnalysisPage />} />
+            <Route path="/ai-analysis/:caseId" element={<AIAnalysisPage />} />
+            <Route path="/security-alerts" element={<SecurityAlertsPage />} />
+            <Route path="/reports" element={<ReportsPage />} />
+            <Route path="/custody" element={<ChainOfCustodyPage />} />
+            <Route path="/logs" element={<Navigate to="/custody" replace />} />
+            <Route path="/devices" element={<DevicesView />} />
+            <Route path="/settings" element={<Settings />} />
+            <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          </Routes>
+        </ErrorBoundary>
       </main>
     </div>
   );
@@ -422,32 +425,34 @@ const AppRoutes = () => {
   }
 
   return (
-    <Routes>
-      {/* Root Route: If authenticated, redirect to /dashboard; otherwise show public LandingPage */}
-      <Route
-        path="/"
-        element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <LandingPage />}
-      />
+    <ErrorBoundary fallbackTitle="Application Shell Error">
+      <Routes>
+        {/* Root Route: If authenticated, redirect to /dashboard; otherwise show public LandingPage */}
+        <Route
+          path="/"
+          element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <LandingPage />}
+        />
 
-      {/* Dedicated Login / Register Portal Route */}
-      <Route
-        path="/login"
-        element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <Login />}
-      />
+        {/* Dedicated Login / Register Portal Route */}
+        <Route
+          path="/login"
+          element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <Login />}
+        />
 
-      {/* Landing Route alias: always viewable */}
-      <Route
-        path="/landing"
-        element={<LandingPage />}
-      />
+        {/* Landing Route alias: always viewable */}
+        <Route
+          path="/landing"
+          element={<LandingPage />}
+        />
 
-      {/* Authenticated Workstation Shell */}
-      {isAuthenticated ? (
-        <Route path="/*" element={<DashboardLayout />} />
-      ) : (
-        <Route path="/*" element={<Navigate to="/" replace />} />
-      )}
-    </Routes>
+        {/* Authenticated Workstation Shell */}
+        {isAuthenticated ? (
+          <Route path="/*" element={<DashboardLayout />} />
+        ) : (
+          <Route path="/*" element={<Navigate to="/" replace />} />
+        )}
+      </Routes>
+    </ErrorBoundary>
   );
 };
 
