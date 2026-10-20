@@ -1,27 +1,21 @@
 import axios from 'axios';
 
 export const getApiBaseUrl = (): string => {
-  // Clear any old manual override so auto-detection works cleanly
   if (typeof window !== 'undefined') {
-    localStorage.removeItem('forensic_api_url');
-  }
+    // 1. User manual override (configured on Login page or local storage)
+    const custom = localStorage.getItem('forensic_api_url');
+    if (custom && custom.trim()) {
+      const clean = custom.trim().replace(/\/$/, '');
+      return clean.endsWith('/api') ? clean : `${clean}/api`;
+    }
 
-  // 1. Explicit VITE_API_URL provided at build time (if non-local)
-  if (import.meta.env.VITE_API_URL && !import.meta.env.VITE_API_URL.includes('localhost')) {
-    const rawUrl = import.meta.env.VITE_API_URL;
-    return rawUrl.endsWith('/api') ? rawUrl : `${rawUrl.replace(/\/$/, '')}/api`;
-  }
-
-  if (typeof window !== 'undefined') {
     const host = window.location.hostname;
-
     // 2. Local development
     if (host === 'localhost' || host === '127.0.0.1') {
       return 'http://localhost:8000/api';
     }
 
-    // 3. Render automatic cloud backend detection:
-    // Example: frontend on cryptevid-final-1.onrender.com -> backend on cryptevid-final.onrender.com
+    // 3. Render cloud paired backend auto-detection
     if (host.endsWith('.onrender.com')) {
       if (host.includes('-1.onrender.com')) {
         const backendOrigin = window.location.origin.replace('-1.onrender.com', '.onrender.com');
@@ -32,13 +26,22 @@ export const getApiBaseUrl = (): string => {
         return `${backendOrigin}/api`;
       }
     }
-
-    // 4. Default fallback: same origin /api
-    return `${window.location.origin}/api`;
   }
 
-  const rawUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-  return rawUrl.endsWith('/api') ? rawUrl : `${rawUrl.replace(/\/$/, '')}/api`;
+  // 4. Build-time environment variable (ignore dummy placeholders like xxxx or localhost when hosted)
+  if (
+    import.meta.env.VITE_API_URL &&
+    !import.meta.env.VITE_API_URL.includes('localhost') &&
+    !import.meta.env.VITE_API_URL.includes('xxxx') &&
+    !import.meta.env.VITE_API_URL.includes('dummy') &&
+    !import.meta.env.VITE_API_URL.includes('placeholder')
+  ) {
+    const rawUrl = import.meta.env.VITE_API_URL.trim().replace(/\/$/, '');
+    return rawUrl.endsWith('/api') ? rawUrl : `${rawUrl}/api`;
+  }
+
+  // 5. Default production backend URL
+  return 'https://cryptevid-final.onrender.com/api';
 };
 
 const api = axios.create({

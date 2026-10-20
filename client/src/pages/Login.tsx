@@ -61,16 +61,20 @@ export const Login: React.FC = () => {
 
   const handleSaveApiUrl = (e: React.FormEvent) => {
     e.preventDefault();
-    if (customApiUrl.trim()) {
-      localStorage.setItem('forensic_api_url', customApiUrl.trim());
+    const cleanUrl = customApiUrl.trim().replace(/\/$/, '');
+    if (cleanUrl) {
+      const formatted = cleanUrl.endsWith('/api') ? cleanUrl : `${cleanUrl}/api`;
+      localStorage.setItem('forensic_api_url', formatted);
+      setCustomApiUrl(formatted);
     } else {
       localStorage.removeItem('forensic_api_url');
+      setCustomApiUrl('');
     }
     setApiSaved(true);
     setTimeout(() => {
       setApiSaved(false);
       window.location.reload();
-    }, 800);
+    }, 500);
   };
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -543,17 +547,17 @@ export const Login: React.FC = () => {
           {showApiConfig && (
             <form onSubmit={handleSaveApiUrl} className="mt-2.5 p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-2">
               <label className="block text-[11px] font-bold text-slate-700">
-                Backend API URL (for Railway / Cloud Deployments)
+                Backend API URL (Render / Railway / Custom)
               </label>
               <input
                 type="text"
                 value={customApiUrl}
                 onChange={(e) => setCustomApiUrl(e.target.value)}
-                placeholder="https://your-backend.up.railway.app"
+                placeholder="https://cryptevid-final.onrender.com"
                 className="ws-input w-full text-xs font-mono"
               />
               <p className="text-[10px] text-slate-500">
-                Leave blank to reset to default ({import.meta.env.VITE_API_URL || 'http://localhost:8000'}).
+                Default: <span className="font-mono text-slate-700 font-semibold">https://cryptevid-final.onrender.com</span>
               </p>
               <div className="flex justify-end gap-2 pt-1">
                 <button

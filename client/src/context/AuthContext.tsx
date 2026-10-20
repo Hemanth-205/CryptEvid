@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import api from '../services/api';
+import api, { getApiBaseUrl } from '../services/api';
 import type { User } from '../types';
 
 interface AuthContextType {
@@ -61,10 +61,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // WebSocket for hardware auth and real-time alerts
   useEffect(() => {
     let ws: WebSocket | null = null;
-    const rawApi = typeof window !== 'undefined' && localStorage.getItem('forensic_api_url')
-      ? localStorage.getItem('forensic_api_url')!
-      : (import.meta.env.VITE_API_URL || 'http://localhost:8000');
-    const apiBase = rawApi.replace(/\/api\/?$/, '');
+    const apiBase = getApiBaseUrl().replace(/\/api\/?$/, '');
     const isHttps = apiBase.startsWith('https://') || (typeof window !== 'undefined' && window.location.protocol === 'https:');
     const wsUrl = apiBase.replace(/^https?:\/\//, isHttps ? 'wss://' : 'ws://') + '/api/ws/hardware';
     
