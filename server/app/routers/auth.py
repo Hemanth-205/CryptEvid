@@ -129,7 +129,14 @@ async def login(payload: UserLogin, request: Request):
             detail="Standard authentication is disabled. A physical ESP32 Hardware Authentication (RFID/Fingerprint) is required."
         )
 
-    user = await user_repo.get_by_email(payload.email)
+    try:
+        user = await asyncio.wait_for(user_repo.get_by_email(payload.email), timeout=5.0)
+    except Exception as e:
+        print(f"[LOGIN_DB_ERROR] Database query failed during login: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Database unavailable: {str(e)}. Please ensure your MongoDB cluster is running and Network Access allows 0.0.0.0/0 in MongoDB Atlas."
+        )
     
     valid_pwd = False
     if user:

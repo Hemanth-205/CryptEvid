@@ -182,10 +182,21 @@ async def custom_http_exception_handler(request: Request, exc: HTTPException):
         headers=headers
     )
 
-@app.get("/")
-async def root():
-    return {
-        "status": "online",
-        "system": settings.PROJECT_NAME,
-        "docs": "/docs"
-    }
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    import traceback
+    tb = traceback.format_exc()
+    print(f"\n[UNHANDLED SERVER EXCEPTION on {request.method} {request.url.path}]:\n{tb}\n")
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": f"Internal Server Error: {str(exc)}",
+            "type": type(exc).__name__,
+        },
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Credentials": "true",
+            "Access-Control-Allow-Methods": "*",
+            "Access-Control-Allow-Headers": "*"
+        }
+    )

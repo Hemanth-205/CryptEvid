@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     DATABASE_NAME: str = os.getenv("DATABASE_NAME") or "macro"
     
     # JWT Config
-    JWT_SECRET_KEY: str = "supersecretkey_change_in_production_for_forensic_platform"
+    JWT_SECRET_KEY: str = os.getenv("SECRET_KEY") or os.getenv("JWT_SECRET_KEY") or "supersecretkey_change_in_production_for_forensic_platform"
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 Hours
     

@@ -89,12 +89,16 @@ export const Login: React.FC = () => {
       navigate('/dashboard', { replace: true });
     } catch (err: any) {
       console.error('Login error:', err);
-      if (!err.response) {
-        const currentTarget = getApiBaseUrl();
-        setError(`Cannot connect to backend API at ${currentTarget}. If hosting on Railway, ensure the backend service is deployed and configure the Backend API URL below.`);
-        setShowApiConfig(true);
+      if (err.response?.data?.detail) {
+        setError(err.response.data.detail);
+      } else if (err.response?.status === 503) {
+        setError(err.response?.data?.detail || 'Database service temporarily unavailable.');
+      } else if (err.response?.status === 500) {
+        setError('Server encountered an internal error. Please check server logs.');
+      } else if (!err.response) {
+        setError(`Unable to connect to forensic backend (${getApiBaseUrl()}). Please ensure the service is running.`);
       } else {
-        setError(err.response?.data?.detail || 'Authentication failed. Invalid cryptographic credentials.');
+        setError('Authentication failed. Invalid credentials.');
       }
     } finally {
       setIsSubmitting(false);
@@ -123,10 +127,12 @@ export const Login: React.FC = () => {
       navigate('/dashboard', { replace: true });
     } catch (err: any) {
       console.error(err);
-      if (!err.response) {
-        setError('Cannot connect to backend server at http://127.0.0.1:8000. Please ensure the service is active.');
+      if (err.response?.data?.detail) {
+        setError(err.response.data.detail);
+      } else if (!err.response) {
+        setError('Unable to reach backend service. Please ensure the server is online.');
       } else {
-        setError(err.response?.data?.detail || 'Registration failed. Email may already be registered.');
+        setError('Registration failed. Email may already be registered.');
       }
     } finally {
       setIsSubmitting(false);
@@ -155,12 +161,15 @@ export const Login: React.FC = () => {
       }
     } catch (err: any) {
       console.error(err);
-      if (!err.response) {
-        setError("Cannot connect to backend server at http://127.0.0.1:8000. Please verify service status.");
+      if (err.response?.data?.detail) {
+        setError(err.response.data.detail);
+      } else if (!err.response) {
+        setError("Unable to connect to backend service. Please verify server status.");
       } else {
-        setError(err.response?.data?.detail || "Hardware simulation authentication failed.");
+        setError("Hardware simulation authentication failed.");
       }
     } finally {
+      setIsSubmitting(false);
       setSimulatingAuth(null);
     }
   };

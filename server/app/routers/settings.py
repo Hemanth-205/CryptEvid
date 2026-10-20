@@ -42,8 +42,13 @@ async def sync_settings_from_db():
 
 @router.get("/settings")
 async def get_settings():
-    db = get_database()
-    doc = await db["settings"].find_one({"key": "global_config"})
+    try:
+        db = get_database()
+        doc = await asyncio.wait_for(db["settings"].find_one({"key": "global_config"}), timeout=3.0)
+    except Exception as e:
+        print(f"[SETTINGS_FALLBACK] Database offline or timed out: {e}")
+        return _global_settings_cache
+    
     if not doc:
         # Return default loaded from config/env
         return _global_settings_cache

@@ -1,23 +1,40 @@
 import axios from 'axios';
 
 export const getApiBaseUrl = (): string => {
+  // Clear any old manual override so auto-detection works cleanly
   if (typeof window !== 'undefined') {
-    const custom = localStorage.getItem('forensic_api_url');
-    if (custom && custom.trim()) {
-      const trimmed = custom.trim();
-      return trimmed.endsWith('/api') ? trimmed : `${trimmed.replace(/\/$/, '')}/api`;
+    localStorage.removeItem('forensic_api_url');
+  }
+
+  // 1. Explicit VITE_API_URL provided at build time (if non-local)
+  if (import.meta.env.VITE_API_URL && !import.meta.env.VITE_API_URL.includes('localhost')) {
+    const rawUrl = import.meta.env.VITE_API_URL;
+    return rawUrl.endsWith('/api') ? rawUrl : `${rawUrl.replace(/\/$/, '')}/api`;
+  }
+
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname;
+
+    // 2. Local development
+    if (host === 'localhost' || host === '127.0.0.1') {
+      return 'http://localhost:8000/api';
     }
 
-    if (import.meta.env.VITE_API_URL) {
-      const rawUrl = import.meta.env.VITE_API_URL;
-      return rawUrl.endsWith('/api') ? rawUrl : `${rawUrl.replace(/\/$/, '')}/api`;
+    // 3. Render automatic cloud backend detection:
+    // Example: frontend on cryptevid-final-1.onrender.com -> backend on cryptevid-final.onrender.com
+    if (host.endsWith('.onrender.com')) {
+      if (host.includes('-1.onrender.com')) {
+        const backendOrigin = window.location.origin.replace('-1.onrender.com', '.onrender.com');
+        return `${backendOrigin}/api`;
+      }
+      if (host.includes('-frontend.onrender.com')) {
+        const backendOrigin = window.location.origin.replace('-frontend.onrender.com', '-backend.onrender.com');
+        return `${backendOrigin}/api`;
+      }
     }
 
-    // Hosted domain fallback: if not on localhost, use current origin /api
-    const hostname = window.location.hostname;
-    if (hostname && hostname !== 'localhost' && hostname !== '127.0.0.1') {
-      return `${window.location.origin}/api`;
-    }
+    // 4. Default fallback: same origin /api
+    return `${window.location.origin}/api`;
   }
 
   const rawUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
