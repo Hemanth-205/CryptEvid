@@ -6,9 +6,9 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "CRYPTEVID Forensic Platform"
     API_V1_STR: str = "/api"
     
-    # MongoDB Config
-    MONGODB_URL: str = "mongodb://localhost:27017"
-    DATABASE_NAME: str = "macro"
+    # MongoDB Config (supports MONGODB_URL, MONGO_URL from Railway, or MONGO_URI)
+    MONGODB_URL: str = os.getenv("MONGODB_URL") or os.getenv("MONGO_URL") or os.getenv("MONGO_URI") or "mongodb://localhost:27017"
+    DATABASE_NAME: str = os.getenv("DATABASE_NAME") or "macro"
     
     # JWT Config
     JWT_SECRET_KEY: str = "supersecretkey_change_in_production_for_forensic_platform"

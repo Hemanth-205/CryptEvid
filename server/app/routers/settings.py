@@ -1,3 +1,4 @@
+import asyncio
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from typing import Dict, Any, Optional
@@ -28,7 +29,7 @@ async def sync_settings_from_db():
     """Load settings stored in MongoDB into the in-memory cache."""
     try:
         db = get_database()
-        doc = await db["settings"].find_one({"key": "global_config"})
+        doc = await asyncio.wait_for(db["settings"].find_one({"key": "global_config"}), timeout=3.0)
         if doc:
             if "simulation_mode" in doc:
                 _global_settings_cache["simulation_mode"] = bool(doc["simulation_mode"])

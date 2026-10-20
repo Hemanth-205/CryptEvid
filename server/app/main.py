@@ -1,3 +1,5 @@
+import sys
+import logging
 import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
@@ -11,6 +13,17 @@ from app.routers import backup as backup_router
 from fastapi import Request, HTTPException
 from fastapi.responses import JSONResponse
 from app.services.security_tracking_service import SecurityTrackingService
+
+# Route logging to stdout so cloud deployment consoles (Railway, Render, GCP) don't display normal INFO logs in red stderr bars
+logging.basicConfig(
+    stream=sys.stdout,
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s"
+)
+for _log_name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+    _logger = logging.getLogger(_log_name)
+    for _handler in _logger.handlers:
+        _handler.setStream(sys.stdout)
 
 # Background task to monitor device status and mark timed-out devices offline
 async def monitor_device_heartbeats():

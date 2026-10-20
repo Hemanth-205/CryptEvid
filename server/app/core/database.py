@@ -9,9 +9,11 @@ class Database:
 db_holder = Database()
 
 async def connect_to_mongo():
-    db_holder.client = AsyncIOMotorClient(settings.MONGODB_URL)
+    url = settings.MONGODB_URL
+    db_holder.client = AsyncIOMotorClient(url, serverSelectionTimeoutMS=5000)
     db_holder.db = db_holder.client[settings.DATABASE_NAME]
-    print(f"Connected to MongoDB at {settings.MONGODB_URL}")
+    safe_log_url = url.split("@")[-1] if "@" in url else url
+    print(f"Connected to MongoDB at {safe_log_url}")
 
 async def close_mongo_connection():
     if db_holder.client:
@@ -22,6 +24,7 @@ async def close_mongo_connection():
 
 def get_database():
     if db_holder.db is None or db_holder.client is None:
-        db_holder.client = AsyncIOMotorClient(settings.MONGODB_URL)
+        url = settings.MONGODB_URL
+        db_holder.client = AsyncIOMotorClient(url, serverSelectionTimeoutMS=5000)
         db_holder.db = db_holder.client[settings.DATABASE_NAME]
     return db_holder.db

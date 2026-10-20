@@ -10,6 +10,13 @@ async def ensure_default_users():
     """
     try:
         db = get_database()
+        # Verify MongoDB responsiveness before bootstrapping
+        try:
+            await asyncio.wait_for(db.command("ping"), timeout=3.0)
+        except Exception as e:
+            print(f"[BOOTSTRAP] MongoDB connection not immediately responsive ({e}). Deferred user seeding until first database request.")
+            return
+
         users_col = db["users"]
         settings_col = db["settings"]
         devices_col = db["devices"]
