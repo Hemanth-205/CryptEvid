@@ -1,3 +1,4 @@
+import asyncio
 from fastapi import APIRouter, Depends, HTTPException, status, WebSocket, WebSocketDisconnect, Request, Query
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from typing import List, Dict, Any, Optional
@@ -131,6 +132,14 @@ async def login(payload: UserLogin, request: Request):
 
     try:
         user = await asyncio.wait_for(user_repo.get_by_email(payload.email), timeout=5.0)
+        if not user:
+            # Seed default users if cluster was just connected
+            try:
+                from app.core.bootstrap import ensure_default_users
+                await ensure_default_users()
+                user = await user_repo.get_by_email(payload.email)
+            except Exception as be:
+                print(f"[LOGIN_BOOTSTRAP_ERR] {be}")
     except Exception as e:
         print(f"[LOGIN_DB_ERROR] Database query failed during login: {e}")
         raise HTTPException(
@@ -148,13 +157,17 @@ async def login(payload: UserLogin, request: Request):
 
     if not user or not valid_pwd:
         # Audit failure
-        await audit_repo.create_log(
-            user_id=None,
-            action="login_failed",
-            ip_address=request.client.host if request.client else "127.0.0.1",
-            user_agent=request.headers.get("user-agent", "unknown"),
-            details=f"Failed login attempt for identifier: {payload.email}"
-        )
+        try:
+            await audit_repo.create_log(
+                user_id=None,
+                action="login_failed",
+                ip_address=request.client.host if request.client else "127.0.0.1",
+                user_agent=request.headers.get("user-agent", "unknown"),
+                details=f"Failed login attempt for identifier: {payload.email}"
+            )
+        except Exception as e:
+            print(f"[AUDIT_LOG_ERR] {e}")
+
         # Record security event & sliding-window threshold tracking
         try:
             from app.services.security_tracking_service import SecurityTrackingService
@@ -177,13 +190,16 @@ async def login(payload: UserLogin, request: Request):
     token = create_access_token(subject=user["email"], role=user["role"])
     
     # Audit success
-    await audit_repo.create_log(
-        user_id=user["_id"],
-        action="login",
-        ip_address=request.client.host if request.client else "127.0.0.1",
-        user_agent=request.headers.get("user-agent", "unknown"),
-        details="Standard credential authentication successful."
-    )
+    try:
+        await audit_repo.create_log(
+            user_id=user.get("_id"),
+            action="login",
+            ip_address=request.client.host if request.client else "127.0.0.1",
+            user_agent=request.headers.get("user-agent", "unknown"),
+            details="Standard credential authentication successful."
+        )
+    except Exception as e:
+        print(f"[AUDIT_LOG_ERR] {e}")
     
     user.pop("hashed_password", None)
     return {"access_token": token, "token_type": "bearer", "user": user}
