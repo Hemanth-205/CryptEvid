@@ -75,16 +75,25 @@ async def monitor_device_heartbeats():
 
 from app.core.bootstrap import ensure_default_users
 
+db_startup_error = None
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global db_startup_error
     # Startup: Connect to MongoDB
-    await connect_to_mongo()
-    
-    # Ensure default users and configurations are present & healthy
-    await ensure_default_users()
-    
-    # Sync settings from DB into memory cache
-    await settings_router.sync_settings_from_db()
+    try:
+        await connect_to_mongo()
+        # Ensure default users and configurations are present & healthy
+        await ensure_default_users()
+        # Sync settings from DB into memory cache
+        await settings_router.sync_settings_from_db()
+        db_startup_error = None
+    except Exception as e:
+        db_startup_error = str(e)
+        print(f"\n{'='*70}\n[STARTUP WARNING] Database connection error during startup:\n{e}\n"
+              "Server will continue running to bind port and provide diagnostics.\n"
+              "Please configure a valid MONGO_URL in your cloud environment variables.\n"
+              f"{'='*70}\n")
     
     # Start device status background checker
     heartbeat_task = asyncio.create_task(monitor_device_heartbeats())
@@ -104,6 +113,23 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan
 )
+
+@app.get("/")
+@app.get("/health")
+async def health_check():
+    """Diagnostic health check for cloud load balancers and deployment verification."""
+    if db_startup_error:
+        return {
+            "status": "degraded",
+            "message": "CRYPTEVID Forensic Server is active, but MongoDB connection failed.",
+            "database_error": db_startup_error,
+            "instruction": "Please set a valid MONGO_URL in your Render dashboard environment variables."
+        }
+    return {
+        "status": "healthy",
+        "service": "CRYPTEVID Forensic Intelligence Server",
+        "database": "connected"
+    }
 
 # Enable CORS for frontend clients
 app.add_middleware(
