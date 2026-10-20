@@ -13,7 +13,8 @@ import {
   Lock, 
   ShieldCheck,
   ArrowLeft,
-  UserCheck
+  UserCheck,
+  Usb
 } from 'lucide-react';
 
 import api, { getApiBaseUrl } from '../services/api';
@@ -80,6 +81,122 @@ export const Login: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [simulatingAuth, setSimulatingAuth] = useState<'rfid' | 'fingerprint' | null>(null);
+
+  // Web Serial for physically wired ESP32 over USB
+  const [usbConnected, setUsbConnected] = useState(false);
+  const [usbPort, setUsbPort] = useState<any>(null);
+
+  const handleConnectUsb = async () => {
+    if (usbConnected && usbPort) {
+      try {
+        await usbPort.close();
+      } catch (e) {
+        console.error(e);
+      }
+      setUsbPort(null);
+      setUsbConnected(false);
+      return;
+    }
+
+    if (!('serial' in navigator)) {
+      alert("Web Serial is supported in Google Chrome, Microsoft Edge, Opera, and Brave on PC/Mac. Please open the platform in Chrome or Edge to connect your USB hardware.");
+      return;
+    }
+
+    try {
+      const port = await (navigator as any).serial.requestPort();
+      await port.open({ baudRate: 115200 });
+      setUsbPort(port);
+      setUsbConnected(true);
+
+      // Send initial heartbeat to mark node online
+      await api.post('/hardware/heartbeat', {
+        device: "ESP32_WIFI",
+        macAddress: "DA:51:53:00:95:7C",
+        firmwareVersion: "v1.0.4-forensic-usb"
+      });
+
+      // Keep sending periodic heartbeat while USB is connected
+      const hbInterval = setInterval(() => {
+        api.post('/hardware/heartbeat', {
+          device: "ESP32_WIFI",
+          macAddress: "DA:51:53:00:95:7C",
+          firmwareVersion: "v1.0.4-forensic-usb"
+        }).catch(console.error);
+      }, 15000);
+
+      // Read serial stream in background
+      const textDecoder = new TextDecoderStream();
+      port.readable.pipeTo(textDecoder.writable).catch(() => {});
+      const reader = textDecoder.readable.getReader();
+
+      let lineBuffer = "";
+      (async () => {
+        try {
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            if (value) {
+              lineBuffer += value;
+              const lines = lineBuffer.split(/\r?\n/);
+              lineBuffer = lines.pop() || "";
+              for (const line of lines) {
+                const trimmed = line.trim();
+                if (!trimmed) continue;
+                console.log("[ESP32 USB Serial]:", trimmed);
+
+                // Check for RFID UID in serial line (e.g. 10 5B 96 5C or C0 A3 CF 54)
+                const hexMatch = trimmed.match(/(?:UID:?\s*)?([0-9a-fA-F]{2}[\s:-]?[0-9a-fA-F]{2}[\s:-]?[0-9a-fA-F]{2}[\s:-]?[0-9a-fA-F]{2})/i);
+                if (hexMatch) {
+                  const rawUid = hexMatch[1].replace(/[\s:-]/g, '').toUpperCase();
+                  if (rawUid === '105B965C' || rawUid === 'C0A3CF54') {
+                    const res = await api.post('/hardware/authenticate', {
+                      deviceId: "ESP32_WIFI",
+                      rfid: rawUid,
+                      timestamp: new Date().toISOString()
+                    });
+                    if (res.data?.jwt) {
+                      authenticateWithToken(res.data.jwt, res.data.user);
+                      navigate('/dashboard', { replace: true });
+                      return;
+                    }
+                  }
+                }
+
+                // Check for Fingerprint ID in serial line (e.g. "Fingerprint ID: 1", "Found ID #1", "FID: 2")
+                const fpMatch = trimmed.match(/(?:fingerprint|id|fid|found id #?)\s*[:#]?\s*([12])\b/i);
+                if (fpMatch) {
+                  const fid = parseInt(fpMatch[1], 10);
+                  const res = await api.post('/hardware/authenticate', {
+                    deviceId: "ESP32_WIFI",
+                    fingerprintId: fid,
+                    timestamp: new Date().toISOString()
+                  });
+                  if (res.data?.jwt) {
+                    authenticateWithToken(res.data.jwt, res.data.user);
+                    navigate('/dashboard', { replace: true });
+                    return;
+                  }
+                }
+              }
+            }
+          }
+        } catch (readErr) {
+          console.warn("Serial reader closed:", readErr);
+        } finally {
+          clearInterval(hbInterval);
+          try { reader.releaseLock(); } catch (_) {}
+          setUsbConnected(false);
+          setUsbPort(null);
+        }
+      })();
+    } catch (err: any) {
+      if (err.name !== 'NotFoundError') {
+        console.error("Failed to connect USB serial port", err);
+        setError(`Failed to open USB serial port: ${err.message}`);
+      }
+    }
+  };
 
   const handleCredentialsSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -265,11 +382,24 @@ export const Login: React.FC = () => {
             <Cpu className="w-3.5 h-3.5 text-amber-600" />
             <span className="text-[11px] font-mono font-semibold">HARDWARE NODE (ESP32):</span>
           </div>
-          <div className="flex items-center gap-1.5">
-            <span className={`w-2 h-2 rounded-full ${deviceStatus === 'online' ? 'bg-emerald-500' : 'bg-red-500'}`}></span>
-            <span className={`text-[11px] font-mono font-bold ${deviceStatus === 'online' ? 'text-emerald-700' : 'text-red-600'}`}>
-              {deviceStatus === 'online' ? 'NODE ONLINE' : 'NODE OFFLINE'}
+          <div className="flex items-center gap-2">
+            <span className={`w-2 h-2 rounded-full ${deviceStatus === 'online' || usbConnected ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`}></span>
+            <span className={`text-[11px] font-mono font-bold ${deviceStatus === 'online' || usbConnected ? 'text-emerald-700' : 'text-red-600'}`}>
+              {deviceStatus === 'online' || usbConnected ? 'NODE ONLINE' : 'NODE OFFLINE'}
             </span>
+            <button
+              type="button"
+              onClick={handleConnectUsb}
+              className={`text-[10px] px-2 py-0.5 rounded font-mono font-semibold transition-all flex items-center gap-1 cursor-pointer ${
+                usbConnected
+                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                  : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200'
+              }`}
+              title={usbConnected ? "Click to disconnect USB" : "Connect wired ESP32 directly via USB COM port"}
+            >
+              <Usb className="w-3 h-3" />
+              <span>{usbConnected ? 'USB Active' : 'Connect USB Wire'}</span>
+            </button>
           </div>
         </div>
 
