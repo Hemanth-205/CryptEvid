@@ -150,8 +150,8 @@ export const Login: React.FC = () => {
     try {
       const payload = {
         deviceId: "ESP32_01",
-        rfid: type === 'rfid' ? "04A1B2C3" : undefined,
-        fingerprintId: type === 'fingerprint' ? 12 : undefined,
+        rfid: type === 'rfid' ? "105B965C" : undefined,
+        fingerprintId: type === 'fingerprint' ? 1 : undefined,
         timestamp: new Date().toISOString()
       };
 

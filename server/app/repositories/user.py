@@ -48,11 +48,30 @@ class UserRepository(BaseRepository):
         return None
 
     async def get_by_rfid(self, rfid: str) -> Optional[Dict[str, Any]]:
-        doc = await self.collection.find_one({"rfid": rfid})
+        clean = rfid.replace(" ", "").replace(":", "").replace("-", "").upper()
+        # Flexible pattern matching with or without spaces/delimiters
+        pattern = "^" + "".join([f"{clean[i:i+2]}[ :\\-]?" for i in range(0, len(clean), 2)]) + "$" if len(clean) >= 4 else clean
+        doc = await self.collection.find_one({
+            "$or": [
+                {"rfid": rfid},
+                {"rfid": clean},
+                {"rfid": {"$regex": f"^{clean}$", "$options": "i"}},
+                {"rfid": {"$regex": pattern, "$options": "i"}}
+            ]
+        })
         return self.serialize_doc(doc)
 
-    async def get_by_fingerprint(self, fingerprint_id: int) -> Optional[Dict[str, Any]]:
-        doc = await self.collection.find_one({"fingerprint_id": fingerprint_id})
+    async def get_by_fingerprint(self, fingerprint_id: Any) -> Optional[Dict[str, Any]]:
+        try:
+            fid = int(fingerprint_id)
+        except (ValueError, TypeError):
+            fid = fingerprint_id
+        doc = await self.collection.find_one({
+            "$or": [
+                {"fingerprint_id": fid},
+                {"fingerprint_id": str(fid)}
+            ]
+        })
         return self.serialize_doc(doc)
 
     async def create(self, user_data: Dict[str, Any]) -> Dict[str, Any]:
