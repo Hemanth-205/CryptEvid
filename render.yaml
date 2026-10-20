@@ -1,0 +1,30 @@
+services:
+  # 1. Backend Web Service (Python FastAPI)
+  - type: web
+    name: cryptevid-backend
+    runtime: python
+    rootDir: server
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: MONGO_URL
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
+      - key: GEMINI_API_KEY
+        sync: false
+
+  # 2. Frontend Web Service (React + Vite + Serve)
+  - type: web
+    name: cryptevid-frontend
+    runtime: node
+    rootDir: client
+    buildCommand: npm install && npm run build
+    startCommand: npx serve -s dist -l $PORT
+    envVars:
+      - key: NODE_VERSION
+        value: 20.12.0
+      - key: VITE_API_URL
+        sync: false
