@@ -73,6 +73,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const data = JSON.parse(event.data);
           if (data.type === 'hardware_auth_success') {
             authenticateWithToken(data.token, data.user);
+            if (typeof window !== 'undefined' && (window.location.pathname === '/login' || window.location.pathname === '/')) {
+              window.location.href = '/dashboard';
+            }
           } else if (data.type === 'device_status') {
             setDeviceStatus(data.status);
           }

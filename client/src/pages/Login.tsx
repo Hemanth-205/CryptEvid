@@ -143,39 +143,55 @@ export const Login: React.FC = () => {
               for (const line of lines) {
                 const trimmed = line.trim();
                 if (!trimmed) continue;
-                console.log("[ESP32 USB Serial]:", trimmed);
-
-                // Check for RFID UID in serial line (e.g. 10 5B 96 5C or C0 A3 CF 54)
-                const hexMatch = trimmed.match(/(?:UID:?\s*)?([0-9a-fA-F]{2}[\s:-]?[0-9a-fA-F]{2}[\s:-]?[0-9a-fA-F]{2}[\s:-]?[0-9a-fA-F]{2})/i);
-                if (hexMatch) {
-                  const rawUid = hexMatch[1].replace(/[\s:-]/g, '').toUpperCase();
-                  if (rawUid === '105B965C' || rawUid === 'C0A3CF54') {
-                    const res = await api.post('/hardware/authenticate', {
-                      deviceId: "ESP32_WIFI",
-                      rfid: rawUid,
-                      timestamp: new Date().toISOString()
-                    });
-                    if (res.data?.jwt) {
-                      authenticateWithToken(res.data.jwt, res.data.user);
-                      navigate('/dashboard', { replace: true });
-                      return;
+                const cleanUpper = trimmed.replace(/[\s:-]/g, '').toUpperCase();
+                let targetRfid: string | null = null;
+                if (cleanUpper.includes('105B965C')) {
+                  targetRfid = '105B965C';
+                } else if (cleanUpper.includes('C0A3CF54')) {
+                  targetRfid = 'C0A3CF54';
+                } else {
+                  const hexMatch = trimmed.match(/([0-9a-fA-F]{2}[\s:-]?[0-9a-fA-F]{2}[\s:-]?[0-9a-fA-F]{2}[\s:-]?[0-9a-fA-F]{2})/i);
+                  if (hexMatch) {
+                    const candidate = hexMatch[1].replace(/[\s:-]/g, '').toUpperCase();
+                    if (candidate === '105B965C' || candidate === 'C0A3CF54') {
+                      targetRfid = candidate;
                     }
                   }
                 }
 
-                // Check for Fingerprint ID in serial line (e.g. "Fingerprint ID: 1", "Found ID #1", "FID: 2")
-                const fpMatch = trimmed.match(/(?:fingerprint|id|fid|found id #?)\s*[:#]?\s*([12])\b/i);
-                if (fpMatch) {
-                  const fid = parseInt(fpMatch[1], 10);
-                  const res = await api.post('/hardware/authenticate', {
-                    deviceId: "ESP32_WIFI",
-                    fingerprintId: fid,
-                    timestamp: new Date().toISOString()
-                  });
-                  if (res.data?.jwt) {
-                    authenticateWithToken(res.data.jwt, res.data.user);
-                    navigate('/dashboard', { replace: true });
-                    return;
+                let targetFid: number | null = null;
+                if (trimmed === '1' || trimmed === '2') {
+                  targetFid = parseInt(trimmed, 10);
+                } else {
+                  const fpMatch = trimmed.match(/(?:fingerprint|finger|id|fid|found|matched|match)\s*[:#]?\s*([12])\b/i);
+                  if (fpMatch) {
+                    targetFid = parseInt(fpMatch[1], 10);
+                  }
+                }
+
+                if (targetRfid || targetFid !== null) {
+                  setError(null);
+                  setIsSubmitting(true);
+                  try {
+                    const payload: any = {
+                      deviceId: "ESP32_WIFI",
+                      timestamp: new Date().toISOString()
+                    };
+                    if (targetRfid) payload.rfid = targetRfid;
+                    if (targetFid !== null) payload.fingerprintId = targetFid;
+
+                    console.log("[ESP32 USB]: Authenticating with payload:", payload);
+                    const res = await api.post('/hardware/authenticate', payload);
+                    if (res.data?.jwt) {
+                      authenticateWithToken(res.data.jwt, res.data.user);
+                      window.location.href = '/dashboard';
+                      return;
+                    }
+                  } catch (authErr: any) {
+                    console.error("Hardware auth error:", authErr);
+                    setError(authErr.response?.data?.detail || "Hardware credential authentication failed.");
+                  } finally {
+                    setIsSubmitting(false);
                   }
                 }
               }
