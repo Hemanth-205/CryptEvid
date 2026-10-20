@@ -1,0 +1,59 @@
+# Virtual Environments
+.venv/
+server/venv/
+server/venv_new/
+venv/
+ENV/
+env/
+
+# Python Cache & Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyd
+*.pyo
+.pytest_cache/
+*.egg-info/
+.coverage
+htmlcov/
+
+# Node & Frontend Build
+node_modules/
+client/node_modules/
+dist/
+client/dist/
+dist-ssr/
+client/dist-ssr/
+*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+client/build_log.txt
+
+# Environment files & API keys (use .env.example instead)
+.env
+*.env
+client/.env
+server/.env
+!client/.env.example
+!server/.env.example
+
+# Evidence & Local File Storage
+server/evidence_storage/
+server/uploads/
+evidence_storage/
+uploads/
+
+# IDE & OS Artifacts
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

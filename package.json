@@ -1,0 +1,15 @@
+{
+  "name": "cryptevid-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "serve": "^14.2.6"
+  },
+  "scripts": {
+    "build": "npm --prefix client install && npm --prefix client run build",
+    "start": "serve -s client/dist -l ${PORT:-5173}"
+  }
+}
