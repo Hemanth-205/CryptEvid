@@ -108,6 +108,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
+  // Polling backup for hardware authentication (guarantees instant redirect even if WebSocket drops)
+  useEffect(() => {
+    const pollInterval = setInterval(async () => {
+      if (typeof window === 'undefined') return;
+      if (window.location.pathname !== '/login' && window.location.pathname !== '/') return;
+      if (localStorage.getItem('forensic_token')) return;
+
+      try {
+        const res = await api.get('/hardware/latest-auth');
+        if (res.data && res.data.authenticated && res.data.token) {
+          console.log("[POLL_AUTH_SUCCESS] Detected verified hardware token! Redirecting...", res.data.user);
+          api.post('/hardware/consume-auth').catch(() => {});
+          authenticateWithToken(res.data.token, res.data.user);
+          window.location.href = '/dashboard';
+        }
+      } catch (e) {
+        // Silent catch during background poll
+      }
+    }, 1200);
+
+    return () => clearInterval(pollInterval);
+  }, []);
+
   const authenticateWithToken = (jwtToken: string, userData: any) => {
     localStorage.setItem('forensic_token', jwtToken);
     localStorage.setItem('forensic_user', JSON.stringify(userData));

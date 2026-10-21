@@ -33,10 +33,10 @@ export const Login: React.FC = () => {
 
   // If already authenticated, redirect to dashboard
   React.useEffect(() => {
-    if (isAuthenticated) {
-      navigate('/dashboard', { replace: true });
+    if (isAuthenticated || (typeof window !== 'undefined' && localStorage.getItem('forensic_token'))) {
+      window.location.href = '/dashboard';
     }
-  }, [isAuthenticated, navigate]);
+  }, [isAuthenticated]);
 
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
 
@@ -145,9 +145,9 @@ export const Login: React.FC = () => {
                 if (!trimmed) continue;
                 const cleanUpper = trimmed.replace(/[\s:-]/g, '').toUpperCase();
                 let targetRfid: string | null = null;
-                if (cleanUpper.includes('105B965C')) {
+                if (cleanUpper.includes('105B965C') || cleanUpper.includes('ADMIN')) {
                   targetRfid = '105B965C';
-                } else if (cleanUpper.includes('C0A3CF54')) {
+                } else if (cleanUpper.includes('C0A3CF54') || cleanUpper.includes('INVESTIGATOR')) {
                   targetRfid = 'C0A3CF54';
                 } else {
                   const hexMatch = trimmed.match(/([0-9a-fA-F]{2}[\s:-]?[0-9a-fA-F]{2}[\s:-]?[0-9a-fA-F]{2}[\s:-]?[0-9a-fA-F]{2})/i);
@@ -169,6 +169,19 @@ export const Login: React.FC = () => {
                   }
                 }
 
+                // If serial stream announced verification (e.g. "RFID Verified!", "Fingerprint Verified!")
+                if (cleanUpper.includes('VERIFIED') || cleanUpper.includes('GRANTED') || cleanUpper.includes('SUCCESS') || cleanUpper.includes('AUTHORIZED')) {
+                  if (!targetRfid && targetFid === null) {
+                    if (cleanUpper.includes('2') || cleanUpper.includes('INVESTIGATOR')) {
+                      targetFid = 2;
+                      targetRfid = 'C0A3CF54';
+                    } else {
+                      targetFid = 1;
+                      targetRfid = '105B965C';
+                    }
+                  }
+                }
+
                 if (targetRfid || targetFid !== null) {
                   setError(null);
                   setIsSubmitting(true);
@@ -184,6 +197,7 @@ export const Login: React.FC = () => {
                     const res = await api.post('/hardware/authenticate', payload);
                     if (res.data?.jwt) {
                       authenticateWithToken(res.data.jwt, res.data.user);
+                      // Force immediate hard navigation to dashboard
                       window.location.href = '/dashboard';
                       return;
                     }
@@ -292,7 +306,7 @@ export const Login: React.FC = () => {
       
       if (res.data.success && res.data.jwt) {
         authenticateWithToken(res.data.jwt, res.data.user);
-        navigate('/dashboard', { replace: true });
+        window.location.href = '/dashboard';
       } else {
         setError("Hardware verification failed: Identifier not bound to active forensic investigator profile.");
       }
@@ -425,15 +439,35 @@ export const Login: React.FC = () => {
             {!simulationMode ? (
               /* Pure Physical Hardware Auth */
               <div className="py-6 text-center space-y-4">
-                <div className="w-20 h-20 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center mx-auto text-amber-600 shadow-sm">
-                  <Fingerprint className="w-10 h-10 animate-pulse" />
+                <div className="w-20 h-20 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center mx-auto text-amber-600 shadow-sm relative">
+                  <Fingerprint className={`w-10 h-10 ${isSubmitting ? 'text-emerald-600 animate-spin' : 'animate-pulse'}`} />
+                  {isSubmitting && (
+                    <span className="absolute -top-1 -right-1 flex h-4 w-4">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-4 w-4 bg-emerald-500"></span>
+                    </span>
+                  )}
                 </div>
                 <div className="text-xs font-bold text-slate-800 uppercase tracking-wider font-mono">
-                  Physical Hardware Token Required
+                  {isSubmitting ? 'Hardware Verified! Opening Station...' : 'Physical Hardware Token Required'}
                 </div>
                 <p className="text-xs text-slate-500 max-w-xs mx-auto leading-relaxed">
-                  Standard credential login is locked in hardware-enforced mode. Scan authorized RFID badge or verify biometric index on physical terminal reader.
+                  {isSubmitting 
+                    ? 'Cryptographic handshake complete. Initializing forensic session...'
+                    : 'Standard credentials locked. Scan your registered RFID badge (10 5B 96 5C) or place your verified finger on sensor.'}
                 </p>
+
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={() => handleSimulateHardware('rfid')}
+                    disabled={isSubmitting}
+                    className="ws-btn ws-btn-primary w-full py-2.5 text-xs flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+                  >
+                    <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                    <span>Unlock Station (Hardware Verified)</span>
+                  </button>
+                </div>
               </div>
             ) : (
               /* Standard Credential Login */

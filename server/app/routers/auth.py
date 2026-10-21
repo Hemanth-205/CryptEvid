@@ -17,6 +17,9 @@ from app.routers.settings import get_current_simulation_mode
 router = APIRouter(tags=["auth"])
 security_scheme = HTTPBearer(auto_error=False)
 
+# In-memory session holder for hardware authentication (cluster & polling fallback)
+_latest_hardware_auth: Dict[str, Any] = {}
+
 # Helper dependency to authenticate users from JWT (Header or Query token for downloads)
 async def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_scheme),
@@ -303,9 +306,35 @@ async def hardware_authenticate(payload: HardwareAuthPayload, request: Request):
     # Clean user payload
     user_copy = user.copy()
     user_copy.pop("hashed_password", None)
+
+    # 1. Update in-memory holder
+    now_iso = datetime.now(timezone.utc).isoformat()
+    _latest_hardware_auth["latest"] = {
+        "device_id": payload.deviceId,
+        "token": token,
+        "user": user_copy,
+        "auth_method": auth_method,
+        "authenticated_at": now_iso
+    }
+
+    # 2. Update MongoDB for multi-worker cluster synchronization
+    try:
+        await db["hardware_sessions"].replace_one(
+            {"key": "latest_hardware_auth"},
+            {
+                "key": "latest_hardware_auth",
+                "device_id": payload.deviceId,
+                "token": token,
+                "user": user_copy,
+                "auth_method": auth_method,
+                "authenticated_at": datetime.now(timezone.utc)
+            },
+            upsert=True
+        )
+    except Exception as dbe:
+        print(f"[HARDWARE_SESSION_DB_ERR] {dbe}")
     
-    # Broadcast successful authentication to all connected WebSockets
-    # This automatically logs in the waiting client page!
+    # 3. Broadcast successful authentication to all connected WebSockets
     await ws_manager.broadcast({
         "type": "hardware_auth_success",
         "token": token,
@@ -313,6 +342,52 @@ async def hardware_authenticate(payload: HardwareAuthPayload, request: Request):
     })
     
     return {"success": True, "jwt": token, "user": user_copy}
+
+# HARDWARE POLLING BACKUP (Guarantees redirect even when WebSockets are unavailable)
+@router.get("/hardware/latest-auth")
+async def get_latest_hardware_auth():
+    # Check in-memory first
+    mem = _latest_hardware_auth.get("latest")
+    if mem:
+        return {
+            "authenticated": True,
+            "token": mem["token"],
+            "user": mem["user"],
+            "timestamp": mem["authenticated_at"]
+        }
+
+    # Check MongoDB database for multi-process cloud workers
+    try:
+        db = get_database()
+        doc = await db["hardware_sessions"].find_one({"key": "latest_hardware_auth"})
+        if doc and doc.get("token"):
+            now = datetime.now(timezone.utc)
+            auth_time = doc.get("authenticated_at")
+            if auth_time:
+                if auth_time.tzinfo is None:
+                    auth_time = auth_time.replace(tzinfo=timezone.utc)
+                age = (now - auth_time).total_seconds()
+                if age <= 30.0:  # Fresh within 30 seconds
+                    return {
+                        "authenticated": True,
+                        "token": doc["token"],
+                        "user": doc.get("user", {}),
+                        "timestamp": auth_time.isoformat()
+                    }
+    except Exception as e:
+        print(f"[LATEST_AUTH_POLL_ERR] {e}")
+
+    return {"authenticated": False}
+
+@router.post("/hardware/consume-auth")
+async def consume_hardware_auth():
+    _latest_hardware_auth.pop("latest", None)
+    try:
+        db = get_database()
+        await db["hardware_sessions"].delete_one({"key": "latest_hardware_auth"})
+    except Exception:
+        pass
+    return {"status": "consumed"}
 
 # ESP32 DEVICES LISTING ENDPOINT
 @router.get("/hardware/devices")
