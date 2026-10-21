@@ -111,9 +111,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Polling backup for hardware authentication (guarantees instant redirect even if WebSocket drops)
   useEffect(() => {
     const pollInterval = setInterval(async () => {
-      if (typeof window === 'undefined') return;
-      if (window.location.pathname !== '/login' && window.location.pathname !== '/') return;
-      if (localStorage.getItem('forensic_token')) return;
+      if (window.location.pathname.startsWith('/dashboard')) return;
+      if (user) return;
 
       try {
         const res = await api.get('/hardware/latest-auth');

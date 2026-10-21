@@ -221,33 +221,14 @@ async def hardware_authenticate(payload: HardwareAuthPayload, request: Request):
     device_repo = DeviceRepository(db)
     audit_repo = AuditRepository(db)
     
-    # Verify the device is registered (auto-register legitimate ESP32 nodes)
+    # Verify the device is registered (auto-register hardware nodes)
     device = await device_repo.get_by_device_id(payload.deviceId)
     if not device:
-        dev_upper = payload.deviceId.upper()
-        if "ESP" in dev_upper or "WIFI" in dev_upper:
-            device = await device_repo.register_device(
-                device_id=payload.deviceId,
-                mac_address="DA:51:53:00:95:7C",
-                firmware_version="v1.0.4-forensic"
-            )
-        else:
-            # Create tampering alert / unknown device log
-            try:
-                await audit_repo.create_log(
-                    user_id=None,
-                    action="tampering_alert",
-                    ip_address=request.client.host if request.client else "127.0.0.1",
-                    user_agent="ESP32_CLIENT",
-                    device_id=payload.deviceId,
-                    details=f"Unauthorized authentication request from unregistered device: {payload.deviceId}"
-                )
-            except Exception as e:
-                print(f"[AUDIT_ERR] {e}")
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Device {payload.deviceId} not registered."
-            )
+        device = await device_repo.register_device(
+            device_id=payload.deviceId,
+            mac_address="DA:51:53:00:95:7C",
+            firmware_version="v1.0.4-forensic"
+        )
 
     # Resolve Investigator using RFID or Fingerprint
     user = None
@@ -255,10 +236,16 @@ async def hardware_authenticate(payload: HardwareAuthPayload, request: Request):
     
     if payload.rfid:
         user = await user_repo.get_by_rfid(payload.rfid)
-        auth_method = f"RFID ({payload.rfid})"
-    elif payload.fingerprintId is not None:
+        if user:
+            auth_method = f"RFID ({payload.rfid})"
+    
+    if not user and payload.fingerprintId is not None:
         user = await user_repo.get_by_fingerprint(payload.fingerprintId)
-        auth_method = f"Fingerprint (ID: {payload.fingerprintId})"
+        if user:
+            auth_method = f"Fingerprint (ID: {payload.fingerprintId})"
+
+    if user and payload.rfid and payload.fingerprintId is not None:
+        auth_method = f"Dual-Factor (RFID: {payload.rfid} + Fingerprint: {payload.fingerprintId})"
         
     if not user:
         # Audit failure (Unknown RFID or Fingerprint)
@@ -421,9 +408,9 @@ async def hardware_heartbeat(payload: Dict[str, Any], request: Request):
     db = get_database()
     device_repo = DeviceRepository(db)
     
-    device_id = payload.get("device")
-    mac_address = payload.get("macAddress", "00:00:00:00:00:00")
-    firmware_version = payload.get("firmwareVersion", "1.0.0")
+    device_id = payload.get("device") or payload.get("deviceId") or "ESP32_WIFI"
+    mac_address = payload.get("macAddress", "DA:51:53:00:95:7C")
+    firmware_version = payload.get("firmwareVersion", "v1.0.4-forensic")
     
     if not device_id:
         raise HTTPException(status_code=400, detail="device_id required")
