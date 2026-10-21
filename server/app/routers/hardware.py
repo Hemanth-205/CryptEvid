@@ -16,6 +16,8 @@ from app.models.hardware import (
 from app.repositories.hardware import HardwareRepository
 from app.repositories.user import UserRepository
 from app.repositories.audit import AuditRepository
+from app.core.security import create_access_token
+from app.routers.auth import _latest_hardware_auth
 
 logger = logging.getLogger("hardware.router")
 
@@ -165,7 +167,46 @@ async def ingest_hardware_serial_event(
     except Exception as ae:
         logger.error(f"Failed to create audit log entry for hardware event: {ae}")
 
-    # 5. Broadcast to connected WebSocket clients for real-time dashboard updates
+    # 5. If identity verified on hardware, populate hardware auth session and broadcast login token
+    auth_token = None
+    if is_identity_verified and user:
+        try:
+            auth_token = create_access_token(subject=user["email"], role=user["role"])
+            user_copy = user.copy()
+            user_copy.pop("hashed_password", None)
+            user_copy["_id"] = str(user_copy.get("_id", ""))
+
+            now_iso = now.isoformat()
+            _latest_hardware_auth["latest"] = {
+                "device_id": payload.device_id,
+                "token": auth_token,
+                "user": user_copy,
+                "auth_method": f"USB Serial RFID ({payload.uid})",
+                "authenticated_at": now_iso
+            }
+
+            await db["hardware_sessions"].replace_one(
+                {"key": "latest_hardware_auth"},
+                {
+                    "key": "latest_hardware_auth",
+                    "device_id": payload.device_id,
+                    "token": auth_token,
+                    "user": user_copy,
+                    "auth_method": f"USB Serial RFID ({payload.uid})",
+                    "authenticated_at": now
+                },
+                upsert=True
+            )
+
+            await ws_manager.broadcast({
+                "type": "hardware_auth_success",
+                "token": auth_token,
+                "user": user_copy
+            })
+        except Exception as he:
+            logger.warning(f"Error provisioning hardware login session: {he}")
+
+    # 6. Broadcast to connected WebSocket clients for real-time dashboard updates
     try:
         await ws_manager.broadcast({
             "type": "hardware_serial_event",

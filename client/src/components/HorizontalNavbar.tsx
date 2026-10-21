@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
   LogOut,
@@ -12,13 +12,15 @@ import type { Case } from '../types';
 export const HorizontalNavbar: React.FC = () => {
   const { user, logout } = useAuth();
   const location = useLocation();
-  const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [activeCase, setActiveCase] = useState<Case | null>(null);
 
-  const handleLogout = () => {
+  const handleLogout = (e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
     logout();
-    navigate('/', { replace: true });
   };
 
   // Fetch active case context

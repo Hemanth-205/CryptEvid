@@ -78,6 +78,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
           } else if (data.type === 'device_status') {
             setDeviceStatus(data.status);
+          } else if (data.type === 'hardware_bridge_status') {
+            setDeviceStatus(data.bridge?.status === 'Connected' ? 'online' : 'offline');
           }
         } catch (err) {
           console.error("Error parsing WS message", err);
@@ -108,12 +110,41 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
+  // Proactive check of hardware bridge and device status
+  useEffect(() => {
+    const checkBridgeStatus = async () => {
+      try {
+        const bRes = await api.get('/hardware/bridge-status');
+        if (bRes.data?.status === 'Connected') {
+          setDeviceStatus('online');
+          return;
+        }
+        const devRes = await api.get('/hardware/devices');
+        const list = Array.isArray(devRes.data) ? devRes.data : (devRes.data?.devices || []);
+        const hasOnline = list.some((d: any) => d.status === 'online');
+        setDeviceStatus(hasOnline ? 'online' : 'offline');
+      } catch (_) {}
+    };
+
+    checkBridgeStatus();
+    const interval = setInterval(checkBridgeStatus, 3000);
+    return () => clearInterval(interval);
+  }, []);
+
   // Polling backup for hardware authentication (guarantees instant redirect even if WebSocket drops)
   useEffect(() => {
     const pollInterval = setInterval(async () => {
       if (typeof window === 'undefined') return;
       if (window.location.pathname !== '/login' && window.location.pathname !== '/') return;
       if (localStorage.getItem('forensic_token')) return;
+
+      // Prevent immediate re-authentication loop if user explicitly logged out in the last 10s
+      try {
+        const justLoggedOut = sessionStorage.getItem('forensic_just_logged_out');
+        if (justLoggedOut && (Date.now() - parseInt(justLoggedOut, 10)) < 10000) {
+          return;
+        }
+      } catch (_) {}
 
       try {
         const res = await api.get('/hardware/latest-auth');
@@ -132,6 +163,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const authenticateWithToken = (jwtToken: string, userData: any) => {
+    try {
+      sessionStorage.removeItem('forensic_just_logged_out');
+    } catch (_) {}
     localStorage.setItem('forensic_token', jwtToken);
     localStorage.setItem('forensic_user', JSON.stringify(userData));
     api.defaults.headers.common['Authorization'] = `Bearer ${jwtToken}`;
@@ -163,11 +197,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = () => {
+    try {
+      sessionStorage.setItem('forensic_just_logged_out', Date.now().toString());
+    } catch (_) {}
     localStorage.removeItem('forensic_token');
     localStorage.removeItem('forensic_user');
     delete api.defaults.headers.common['Authorization'];
     setUser(null);
     setToken(null);
+    // Explicitly consume/invalidate hardware session on server
+    api.post('/hardware/consume-auth').catch(() => {});
+    if (typeof window !== 'undefined') {
+      window.location.href = '/login';
+    }
   };
 
   const setSimulationMode = async (val: boolean) => {

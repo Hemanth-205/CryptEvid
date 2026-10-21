@@ -221,10 +221,21 @@ export const Login: React.FC = () => {
         }
       })();
     } catch (err: any) {
-      if (err.name !== 'NotFoundError') {
-        console.error("Failed to connect USB serial port", err);
-        setError(`Failed to open USB serial port: ${err.message}`);
+      if (err.name === 'NotFoundError') {
+        // User closed or dismissed the device picker dialog
+        return;
       }
+      console.warn("Web Serial notice:", err);
+      // Check if Python hardware bridge is already running
+      try {
+        const bRes = await api.get('/hardware/bridge-status');
+        if (bRes.data?.status === 'Connected') {
+          setError(null);
+          return;
+        }
+      } catch (_) {}
+
+      setError("Serial COM port is in use or busy. If hardware_serial_bridge.py is running in a terminal, your ESP32 is already active and will authenticate automatically when you scan.");
     }
   };
 
@@ -421,14 +432,14 @@ export const Login: React.FC = () => {
               type="button"
               onClick={handleConnectUsb}
               className={`text-[10px] px-2 py-0.5 rounded font-mono font-semibold transition-all flex items-center gap-1 cursor-pointer ${
-                usbConnected
+                deviceStatus === 'online' || usbConnected
                   ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
                   : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200'
               }`}
-              title={usbConnected ? "Click to disconnect USB" : "Connect wired ESP32 directly via USB COM port"}
+              title={deviceStatus === 'online' || usbConnected ? "ESP32 hardware is connected and listening" : "Connect wired ESP32 directly via USB COM port"}
             >
               <Usb className="w-3 h-3" />
-              <span>{usbConnected ? 'USB Active' : 'Connect USB Wire'}</span>
+              <span>{deviceStatus === 'online' || usbConnected ? 'USB Connected' : 'Connect USB Wire'}</span>
             </button>
           </div>
         </div>
