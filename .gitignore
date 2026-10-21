@@ -59,3 +59,5 @@ Thumbs.db
 *.njsproj
 *.sln
 *.sw?
+*.lock
+.hardware_bridge.lock

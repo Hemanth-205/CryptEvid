@@ -40,7 +40,7 @@ async def ensure_default_users():
                 "role": "admin",
                 "password": "password123",
                 "rfid": "105B965C",
-                "fingerprint_id": 1,
+                "fingerprint_id": 6,
                 "is_active": True
             },
             {

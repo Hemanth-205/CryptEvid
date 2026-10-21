@@ -529,3 +529,49 @@ export const diaryApi = {
   }
 };
 
+export interface HardwareEvent {
+  _id?: string;
+  event_id: string;
+  protocol_version: number;
+  device_id: string;
+  status: 'GRANTED' | 'DENIED';
+  uid: string;
+  normalized_uid?: string;
+  reason: string;
+  is_identity_verified: boolean;
+  mapped_investigator?: {
+    id: string;
+    name: string;
+    email: string;
+    role: string;
+    rfid?: string;
+  } | null;
+  verification_notes?: string;
+  raw_message?: string;
+  timestamp: string;
+}
+
+export interface HardwareBridgeStatus {
+  status: 'Connected' | 'Disconnected' | 'Error';
+  port: string;
+  baud_rate: number;
+  last_heartbeat?: string | null;
+  last_event?: HardwareEvent | null;
+  error_message?: string | null;
+}
+
+export const hardwareApi = {
+  getBridgeStatus: async (): Promise<HardwareBridgeStatus> => {
+    const res = await api.get('/hardware/bridge-status');
+    return res.data;
+  },
+  getHardwareEvents: async (limit: number = 20): Promise<{ events: HardwareEvent[]; count: number }> => {
+    const res = await api.get(`/hardware/events?limit=${limit}`);
+    return res.data;
+  },
+  getDevices: async () => {
+    const res = await api.get('/hardware/devices');
+    return res.data;
+  }
+};
+

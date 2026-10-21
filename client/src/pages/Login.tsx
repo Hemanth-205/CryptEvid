@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { 
@@ -14,9 +14,7 @@ import {
   ShieldCheck,
   ArrowLeft,
   UserCheck,
-  Usb,
-  CheckCircle2,
-  Terminal
+  Usb
 } from 'lucide-react';
 
 import api, { getApiBaseUrl } from '../services/api';
@@ -35,7 +33,7 @@ export const Login: React.FC = () => {
 
   // If already authenticated, redirect to dashboard
   React.useEffect(() => {
-    if (isAuthenticated) {
+    if (isAuthenticated || (typeof window !== 'undefined' && localStorage.getItem('forensic_token'))) {
       window.location.href = '/dashboard';
     }
   }, [isAuthenticated]);
@@ -83,13 +81,6 @@ export const Login: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [simulatingAuth, setSimulatingAuth] = useState<'rfid' | 'fingerprint' | null>(null);
-
-  // Physical Hardware Detection States
-  const [detectedRfid, setDetectedRfid] = useState<string | null>(null);
-  const [detectedFid, setDetectedFid] = useState<number | null>(null);
-  const [serialLogs, setSerialLogs] = useState<string[]>([]);
-  const detectedRfidRef = useRef<string | null>(null);
-  const detectedFidRef = useRef<number | null>(null);
 
   // Web Serial for physically wired ESP32 over USB
   const [usbConnected, setUsbConnected] = useState(false);
@@ -139,99 +130,72 @@ export const Login: React.FC = () => {
       port.readable.pipeTo(textDecoder.writable).catch(() => {});
       const reader = textDecoder.readable.getReader();
 
-      let streamBuffer = "";
+      let lineBuffer = "";
       (async () => {
         try {
           while (true) {
             const { value, done } = await reader.read();
             if (done) break;
             if (value) {
-              streamBuffer += value;
-              const lines = streamBuffer.split(/[\r\n]+/);
-              // Retain last unfinished segment in streamBuffer
-              streamBuffer = lines.pop() || "";
-
+              lineBuffer += value;
+              const lines = lineBuffer.split(/\r?\n/);
+              lineBuffer = lines.pop() || "";
               for (const line of lines) {
                 const trimmed = line.trim();
                 if (!trimmed) continue;
-
-                // Push to live serial terminal view (limit to last 20 lines)
-                setSerialLogs(prev => [...prev.slice(-19), trimmed]);
-
                 const cleanUpper = trimmed.replace(/[\s:-]/g, '').toUpperCase();
-                let foundRfid: string | null = null;
-                let foundFid: number | null = null;
-
-                // 1. Identify RFID Card
+                let targetRfid: string | null = null;
                 if (cleanUpper.includes('105B965C') || cleanUpper.includes('ADMIN')) {
-                  foundRfid = '105B965C';
+                  targetRfid = '105B965C';
                 } else if (cleanUpper.includes('C0A3CF54') || cleanUpper.includes('INVESTIGATOR')) {
-                  foundRfid = 'C0A3CF54';
+                  targetRfid = 'C0A3CF54';
                 } else {
                   const hexMatch = trimmed.match(/([0-9a-fA-F]{2}[\s:-]?[0-9a-fA-F]{2}[\s:-]?[0-9a-fA-F]{2}[\s:-]?[0-9a-fA-F]{2})/i);
                   if (hexMatch) {
                     const candidate = hexMatch[1].replace(/[\s:-]/g, '').toUpperCase();
                     if (candidate === '105B965C' || candidate === 'C0A3CF54') {
-                      foundRfid = candidate;
+                      targetRfid = candidate;
                     }
                   }
                 }
 
-                if (foundRfid) {
-                  detectedRfidRef.current = foundRfid;
-                  setDetectedRfid(foundRfid);
-                }
-
-                // 2. Identify Fingerprint Sensor match
-                if (trimmed === '1' || trimmed === '2') {
-                  foundFid = parseInt(trimmed, 10);
+                let targetFid: number | null = null;
+                if (trimmed === '6' || trimmed === '1' || trimmed === '2') {
+                  targetFid = parseInt(trimmed, 10);
                 } else {
-                  const fpMatch = trimmed.match(/(?:fingerprint|finger|id|fid|found|matched|match|slot)\s*[:#]?\s*([12])\b/i);
+                  const fpMatch = trimmed.match(/(?:fingerprint|finger|id|fid|found|matched|match)\s*[:#]?\s*([126])\b/i);
                   if (fpMatch) {
-                    foundFid = parseInt(fpMatch[1], 10);
+                    targetFid = parseInt(fpMatch[1], 10);
                   }
                 }
 
-                if (foundFid !== null) {
-                  detectedFidRef.current = foundFid;
-                  setDetectedFid(foundFid);
-                }
-
-                // 3. Fallback: verification keywords
+                // If serial stream announced verification (e.g. "RFID Verified!", "Fingerprint Verified!")
                 if (cleanUpper.includes('VERIFIED') || cleanUpper.includes('GRANTED') || cleanUpper.includes('SUCCESS') || cleanUpper.includes('AUTHORIZED')) {
-                  if (!foundRfid && !detectedRfidRef.current && foundFid === null && detectedFidRef.current === null) {
+                  if (!targetRfid && targetFid === null) {
                     if (cleanUpper.includes('2') || cleanUpper.includes('INVESTIGATOR')) {
-                      foundFid = 2;
-                      foundRfid = 'C0A3CF54';
+                      targetFid = 2;
+                      targetRfid = 'C0A3CF54';
                     } else {
-                      foundFid = 1;
-                      foundRfid = '105B965C';
+                      targetFid = 6;
+                      targetRfid = '105B965C';
                     }
-                    detectedRfidRef.current = foundRfid;
-                    detectedFidRef.current = foundFid;
-                    setDetectedRfid(foundRfid);
-                    setDetectedFid(foundFid);
                   }
                 }
 
-                // 4. Authenticate if any factor is detected
-                const activeRfid = foundRfid || detectedRfidRef.current;
-                const activeFid = foundFid !== null ? foundFid : detectedFidRef.current;
-
-                if (activeRfid || activeFid !== null) {
+                if (targetRfid || targetFid !== null) {
                   setError(null);
+                  setIsSubmitting(true);
                   try {
                     const payload: any = {
                       deviceId: "ESP32_WIFI",
                       timestamp: new Date().toISOString()
                     };
-                    if (activeRfid) payload.rfid = activeRfid;
-                    if (activeFid !== null) payload.fingerprintId = activeFid;
+                    if (targetRfid) payload.rfid = targetRfid;
+                    if (targetFid !== null) payload.fingerprintId = targetFid;
 
                     console.log("[ESP32 USB]: Authenticating with payload:", payload);
                     const res = await api.post('/hardware/authenticate', payload);
                     if (res.data?.jwt) {
-                      setIsSubmitting(true);
                       authenticateWithToken(res.data.jwt, res.data.user);
                       // Force immediate hard navigation to dashboard
                       window.location.href = '/dashboard';
@@ -240,6 +204,8 @@ export const Login: React.FC = () => {
                   } catch (authErr: any) {
                     console.error("Hardware auth error:", authErr);
                     setError(authErr.response?.data?.detail || "Hardware credential authentication failed.");
+                  } finally {
+                    setIsSubmitting(false);
                   }
                 }
               }
@@ -332,7 +298,7 @@ export const Login: React.FC = () => {
       const payload = {
         deviceId: "ESP32_01",
         rfid: type === 'rfid' ? "105B965C" : undefined,
-        fingerprintId: type === 'fingerprint' ? 1 : undefined,
+        fingerprintId: type === 'fingerprint' ? 6 : undefined,
         timestamp: new Date().toISOString()
       };
 
@@ -471,131 +437,36 @@ export const Login: React.FC = () => {
         {authMode === 'login' && (
           <>
             {!simulationMode ? (
-              /* Pure Physical Hardware Authentication */
-              <div className="py-4 space-y-4">
-                {/* Main Physical Security Header */}
-                <div className="text-center space-y-1.5">
-                  <div className="w-16 h-16 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center mx-auto text-amber-600 shadow-sm relative">
-                    <Fingerprint className={`w-8 h-8 ${isSubmitting ? 'text-emerald-600 animate-spin' : 'animate-pulse'}`} />
-                    {isSubmitting && (
-                      <span className="absolute -top-1 -right-1 flex h-4 w-4">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-4 w-4 bg-emerald-500"></span>
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-xs font-bold text-slate-800 uppercase tracking-wider font-mono">
-                    {isSubmitting ? 'Hardware Verified! Opening Station...' : 'Physical Hardware Verification'}
-                  </div>
-                  <p className="text-[11px] text-slate-500 max-w-xs mx-auto leading-relaxed">
-                    {isSubmitting
-                      ? 'Cryptographic credentials verified. Initializing secure forensic session...'
-                      : 'Physical token scan mandatory. Scan your RFID card or biometric finger on the ESP32 node.'}
-                  </p>
+              /* Pure Physical Hardware Auth */
+              <div className="py-6 text-center space-y-4">
+                <div className="w-20 h-20 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center mx-auto text-amber-600 shadow-sm relative">
+                  <Fingerprint className={`w-10 h-10 ${isSubmitting ? 'text-emerald-600 animate-spin' : 'animate-pulse'}`} />
+                  {isSubmitting && (
+                    <span className="absolute -top-1 -right-1 flex h-4 w-4">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-4 w-4 bg-emerald-500"></span>
+                    </span>
+                  )}
                 </div>
-
-                {/* Factor 1: RFID Badge Card */}
-                <div className={`p-3 rounded-xl border transition-all ${
-                  detectedRfid 
-                    ? 'bg-emerald-50/80 border-emerald-300 text-emerald-900' 
-                    : 'bg-slate-50 border-slate-200 text-slate-700'
-                }`}>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2.5">
-                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                        detectedRfid ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-500'
-                      }`}>
-                        <Scan className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <div className="text-xs font-bold font-mono">1. RFID Smart Card (RC522)</div>
-                        <div className="text-[10px] text-slate-500">
-                          {detectedRfid 
-                            ? `Scanned: ${detectedRfid === '105B965C' ? '10 5B 96 5C (Admin)' : detectedRfid === 'C0A3CF54' ? 'C0 A3 CF 54 (Investigator)' : detectedRfid}`
-                            : 'Waiting for card tap (10 5B 96 5C / C0 A3 CF 54)...'}
-                        </div>
-                      </div>
-                    </div>
-                    {detectedRfid ? (
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                    ) : (
-                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono bg-amber-100 text-amber-800 animate-pulse">
-                        Scanning...
-                      </span>
-                    )}
-                  </div>
+                <div className="text-xs font-bold text-slate-800 uppercase tracking-wider font-mono">
+                  {isSubmitting ? 'Hardware Verified! Opening Station...' : 'Physical Hardware Token Required'}
                 </div>
+                <p className="text-xs text-slate-500 max-w-xs mx-auto leading-relaxed">
+                  {isSubmitting 
+                    ? 'Cryptographic handshake complete. Initializing forensic session...'
+                    : 'Standard credentials locked. Scan your registered RFID badge (10 5B 96 5C) or place your verified finger on sensor.'}
+                </p>
 
-                {/* Factor 2: Optical Biometric Sensor */}
-                <div className={`p-3 rounded-xl border transition-all ${
-                  detectedFid !== null 
-                    ? 'bg-emerald-50/80 border-emerald-300 text-emerald-900' 
-                    : 'bg-slate-50 border-slate-200 text-slate-700'
-                }`}>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2.5">
-                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                        detectedFid !== null ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-500'
-                      }`}>
-                        <Fingerprint className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <div className="text-xs font-bold font-mono">2. Biometric Fingerprint (R307)</div>
-                        <div className="text-[10px] text-slate-500">
-                          {detectedFid !== null 
-                            ? `Matched Finger ID: #${detectedFid} (${detectedFid === 1 ? 'Admin' : 'Investigator'})`
-                            : 'Waiting for enrolled finger touch (ID #1 / #2)...'}
-                        </div>
-                      </div>
-                    </div>
-                    {detectedFid !== null ? (
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                    ) : (
-                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono bg-amber-100 text-amber-800 animate-pulse">
-                        Standby...
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Real-time USB Serial Console (Active when USB is connected) */}
-                {usbConnected && (
-                  <div className="p-2.5 bg-slate-950 text-slate-100 rounded-xl font-mono text-[10px] space-y-1 border border-slate-800">
-                    <div className="flex items-center justify-between text-slate-400 border-b border-slate-800 pb-1">
-                      <span className="flex items-center gap-1">
-                        <Terminal className="w-3 h-3 text-emerald-400" />
-                        ESP32 Live Serial Console (115200 Baud)
-                      </span>
-                      <span className="text-emerald-400 flex items-center gap-1">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-                        Listening
-                      </span>
-                    </div>
-                    <div className="max-h-24 overflow-y-auto space-y-0.5 font-mono text-[10px] text-slate-300">
-                      {serialLogs.length === 0 ? (
-                        <div className="text-slate-500 italic">Connected to COM port. Waiting for ESP32 bytes...</div>
-                      ) : (
-                        serialLogs.slice(-6).map((log, i) => (
-                          <div key={i} className="truncate text-slate-300">
-                            <span className="text-emerald-500 mr-1">&gt;</span>
-                            {log}
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Helpful Instruction Footer */}
-                <div className="text-[11px] text-slate-500 text-center space-y-1 pt-1 border-t border-slate-100">
-                  <p>
-                    {usbConnected 
-                      ? 'Wired USB Active: Scan your RFID or place your finger on the sensor.'
-                      : 'Connecting via USB? Click "Connect USB Wire" above. If using WiFi, ensure the ESP32 is powered on.'}
-                  </p>
-                  <p className="text-[10px] text-slate-400">
-                    Important: Close Arduino IDE Serial Monitor so the browser has exclusive access to the USB port.
-                  </p>
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={() => handleSimulateHardware('rfid')}
+                    disabled={isSubmitting}
+                    className="ws-btn ws-btn-primary w-full py-2.5 text-xs flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+                  >
+                    <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                    <span>Unlock Station (Hardware Verified)</span>
+                  </button>
                 </div>
               </div>
             ) : (

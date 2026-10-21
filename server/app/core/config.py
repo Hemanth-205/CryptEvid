@@ -30,8 +30,13 @@ class Settings(BaseSettings):
     # Server Details
     HOST: str = "0.0.0.0"
     PORT: int = 8000
-    
-    model_config = ConfigDict(case_sensitive=True, env_file=".env")
+
+    # Hardware USB Serial Bridge Config
+    HARDWARE_BRIDGE_SECRET: str = os.getenv("HARDWARE_BRIDGE_SECRET") or "cryptevid_usb_bridge_secret_dev"
+    ESP32_COM_PORT: str = os.getenv("ESP32_COM_PORT") or "COM5"
+    ESP32_BAUD_RATE: int = int(os.getenv("ESP32_BAUD_RATE") or "115200")
+
+    model_config = ConfigDict(case_sensitive=True, env_file=".env", extra="ignore")
 
 settings = Settings()
 

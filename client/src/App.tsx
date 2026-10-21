@@ -15,6 +15,7 @@ import ChainOfCustodyPage from './pages/ChainOfCustodyPage';
 import SecurityAlertsPage from './pages/SecurityAlertsPage';
 import ReportsPage from './pages/ReportsPage';
 import Settings from './pages/Settings';
+import HardwareTelemetryCard from './components/HardwareTelemetryCard';
 
 import { 
   FolderLock, 
@@ -165,6 +166,9 @@ const DashboardView: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Hardware USB Ingestion & Biometric Telemetry */}
+      <HardwareTelemetryCard />
 
       {/* Operational Workstation Launchpad */}
       <div className="ws-panel p-5 space-y-4">
@@ -332,6 +336,8 @@ const DevicesView: React.FC = () => {
           </p>
         </div>
       </div>
+
+      <HardwareTelemetryCard />
 
       <div className="ws-panel overflow-hidden">
         <div className="table-responsive">
