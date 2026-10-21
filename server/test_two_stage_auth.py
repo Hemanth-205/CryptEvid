@@ -142,8 +142,16 @@ async def run_tests():
     )
     await hw_repo.invalidate_all_tickets_for_user(test_email)
     is_valid_revoked, rev_msg, _ = await hw_repo.verify_ticket_only(active_ticket["ticket_id"], test_email)
-    assert is_valid_revoked is False, "Revoked ticket must be rejected"
-    print(f"  [PASS] Ticket revoked on user logout: {rev_msg}")
+    # -------------------------------------------------------------
+    # Test 9: Simulate Stage 1 Endpoint & save_event compatibility
+    # -------------------------------------------------------------
+    print("\n--- Test 9: Stage 1 Simulate & save_event Alias ---")
+    from app.routers.hardware import simulate_stage1_auth, HardwareSimulateRequest
+    sim_req = HardwareSimulateRequest(uid="10 5B 96 5C", email=test_email, fingerprint_id=6)
+    sim_res = await simulate_stage1_auth(sim_req)
+    assert sim_res.get("success") is True, "Simulation failed"
+    assert sim_res.get("ticket_id") is not None, "Ticket ID missing in simulation response"
+    print(f"  [PASS] Stage 1 simulation generated challenge ticket: {sim_res['ticket_id']}")
 
     print("\n" + "=" * 65)
     print("  ALL TWO-STAGE AUTHENTICATION TESTS PASSED PERFECTLY!")

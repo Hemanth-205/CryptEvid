@@ -44,12 +44,32 @@ logger = logging.getLogger("hardware_serial_bridge")
 # Configuration via Environment Variables
 COM_PORT = os.getenv("ESP32_COM_PORT", "COM5")
 BAUD_RATE = int(os.getenv("ESP32_BAUD_RATE", "115200"))
-FASTAPI_URL = os.getenv("FASTAPI_URL", "http://127.0.0.1:8000").rstrip("/")
 BRIDGE_SECRET = os.getenv("HARDWARE_BRIDGE_SECRET", "cryptevid_usb_bridge_secret_dev")
 DEVICE_ID = os.getenv("DEVICE_ID", "ESP32_USB")
 HEARTBEAT_INTERVAL = float(os.getenv("HEARTBEAT_INTERVAL", "5.0"))
 DEDUP_WINDOW_SECONDS = float(os.getenv("DEDUP_WINDOW_SECONDS", "2.0"))
 RECONNECT_INTERVAL = float(os.getenv("RECONNECT_INTERVAL", "3.0"))
+
+def resolve_fastapi_url() -> str:
+    """Automatically resolve target backend: explicit ENV -> local 8000 -> cloud Render."""
+    explicit = os.getenv("FASTAPI_URL")
+    if explicit:
+        return explicit.rstrip("/")
+
+    # Check if local FastAPI server is running
+    local_url = "http://127.0.0.1:8000"
+    try:
+        req = urllib.request.Request(f"{local_url}/health", headers={"User-Agent": "CRYPTEVID-Bridge"})
+        with urllib.request.urlopen(req, timeout=1.0) as resp:
+            if resp.getcode() == 200:
+                return local_url
+    except Exception:
+        pass
+
+    # Default to production cloud deployment
+    return "https://cryptevid-final.onrender.com"
+
+FASTAPI_URL = resolve_fastapi_url()
 
 LOCK_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".hardware_bridge.lock")
 

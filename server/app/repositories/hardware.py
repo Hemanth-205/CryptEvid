@@ -37,6 +37,9 @@ class HardwareRepository(BaseRepository):
             logger.error(f"Failed to persist hardware event: {e}")
             raise
 
+    # Alias to prevent AttributeError
+    save_event = create_event
+
     async def list_events(self, limit: int = 50, status_filter: Optional[str] = None) -> List[Dict[str, Any]]:
         """List recent hardware authentication events in descending chronological order."""
         try:
@@ -278,17 +281,22 @@ class HardwareRepository(BaseRepository):
         """Retrieve the latest unconsumed, unexpired hardware authentication ticket."""
         now = datetime.now(timezone.utc)
         try:
-            doc = await self.tickets_collection.find_one(
-                {"status": "VALID", "expires_at": {"$gt": now}},
-                sort=[("created_at", -1)]
-            )
-            if doc:
-                serialized = self.serialize_doc(doc)
-                exp = doc["expires_at"]
-                if exp.tzinfo is None:
-                    exp = exp.replace(tzinfo=timezone.utc)
-                serialized["expires_in_seconds"] = max(0, int((exp - now).total_seconds()))
-                return serialized
+            cursor = self.tickets_collection.find({"status": "VALID"}).sort("created_at", -1).limit(5)
+            async for doc in cursor:
+                exp = doc.get("expires_at")
+                if exp:
+                    if exp.tzinfo is None:
+                        exp = exp.replace(tzinfo=timezone.utc)
+                    if exp > now:
+                        serialized = self.serialize_doc(doc)
+                        serialized["expires_in_seconds"] = max(0, int((exp - now).total_seconds()))
+                        return serialized
+                    else:
+                        # Mark expired
+                        await self.tickets_collection.update_one(
+                            {"_id": doc["_id"]},
+                            {"$set": {"status": "EXPIRED"}}
+                        )
             return None
         except Exception as e:
             logger.error(f"Failed to fetch latest valid ticket: {e}")

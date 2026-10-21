@@ -113,12 +113,16 @@ export const Login: React.FC = () => {
             expires_in_seconds: res.data.ticket.expires_in_seconds || 300,
             timestamp: Date.now()
           });
+          if (res.data.ticket.user_email) {
+            setEmail(res.data.ticket.user_email);
+          }
+          setError(null);
         }
       } catch (_) {}
     };
 
     fetchStage1Status();
-    const interval = setInterval(fetchStage1Status, 1800);
+    const interval = setInterval(fetchStage1Status, 1000);
     return () => {
       isMounted = false;
       clearInterval(interval);
@@ -220,35 +224,50 @@ export const Login: React.FC = () => {
                 const trimmed = line.trim();
                 if (!trimmed) continue;
 
-                // Send line to hardware events endpoint
-                if (trimmed.startsWith("CRYPTEVID")) {
+                // Extract CRYPTEVID protocol line from serial stream
+                const match = trimmed.match(/CRYPTEVID\|(\d+)\|(GRANTED|DENIED)\|UID=([^|\r\n]+)\|REASON=([^|\r\n]+)/);
+                if (match) {
+                  const status = match[2];
+                  const uidPart = match[3].trim();
+                  const reasonPart = match[4].trim();
+
                   try {
-                    const parts = trimmed.split("|");
-                    if (parts.length >= 5) {
-                      const status = parts[2] === "GRANTED" ? "GRANTED" : "DENIED";
-                      const uidPart = parts[3].replace("UID=", "");
-                      const reasonPart = parts[4].replace("REASON=", "");
-                      
-                      const evRes = await api.post("/hardware/events", {
-                        status,
-                        uid: uidPart,
-                        reason: reasonPart,
-                        raw_message: trimmed
+                    const evRes = await api.post("/hardware/events", {
+                      status,
+                      uid: uidPart,
+                      reason: reasonPart,
+                      raw_message: match[0]
+                    }, {
+                      headers: { "X-Bridge-Key": "cryptevid_usb_bridge_secret_dev" }
+                    });
+
+                    if (evRes.data?.ticket_id) {
+                      setStage1Ticket({
+                        ticket_id: evRes.data.ticket_id,
+                        user_email: evRes.data.mapped_investigator?.email || "admin@forensics.gov",
+                        user_name: evRes.data.mapped_investigator?.name || "Chief Investigator",
+                        expires_in_seconds: evRes.data.expires_in_seconds || 300,
+                        timestamp: Date.now()
                       });
-                      
-                      if (evRes.data?.ticket_id) {
-                        setStage1Ticket({
-                          ticket_id: evRes.data.ticket_id,
-                          user_email: evRes.data.mapped_investigator?.email || "admin@forensics.gov",
-                          user_name: evRes.data.mapped_investigator?.name || "Chief Investigator",
-                          expires_in_seconds: evRes.data.expires_in_seconds || 300,
-                          timestamp: Date.now()
-                        });
-                      }
+                      setEmail(evRes.data.mapped_investigator?.email || "admin@forensics.gov");
+                      setError(null);
                     }
-                  } catch (e) {
+                  } catch (e: any) {
                     console.error("Web serial event forward error:", e);
+                    setError(e.response?.data?.detail || "Hardware event processing failed");
                   }
+                } else if (trimmed.includes("RFID_SCANNED:")) {
+                  setStage1State(prev => ({
+                    ...prev,
+                    state: 'RFID_ACCEPTED',
+                    detail: 'RFID card detected. Place finger on biometric sensor.'
+                  }));
+                } else if (trimmed.includes("FINGER_DETECTED") || trimmed.includes("FINGER_SCAN_START")) {
+                  setStage1State(prev => ({
+                    ...prev,
+                    state: 'WAITING_FINGERPRINT',
+                    detail: 'Biometric finger detected. Verifying...'
+                  }));
                 }
               }
             }
@@ -287,6 +306,7 @@ export const Login: React.FC = () => {
       });
 
       if (res.data?.success && res.data?.ticket_id) {
+        setError(null);
         setStage1Ticket({
           ticket_id: res.data.ticket_id,
           user_email: res.data.user_email,
