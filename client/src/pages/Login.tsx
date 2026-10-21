@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { 
@@ -9,12 +9,16 @@ import {
   EyeOff, 
   Loader2, 
   Scan, 
-  RefreshCw, 
   Lock, 
+  Unlock, 
   ShieldCheck,
   ArrowLeft,
   UserCheck,
-  Usb
+  Usb,
+  CheckCircle2,
+  Clock,
+  Radio,
+  ArrowRight
 } from 'lucide-react';
 
 import api, { getApiBaseUrl } from '../services/api';
@@ -25,14 +29,15 @@ export const Login: React.FC = () => {
     login, 
     register,
     simulationMode, 
-    deviceStatus, 
     setSimulationMode,
-    authenticateWithToken,
-    isAuthenticated
+    isAuthenticated,
+    stage1Ticket,
+    setStage1Ticket,
+    clearStage1Ticket
   } = useAuth();
 
   // If already authenticated, redirect to dashboard
-  React.useEffect(() => {
+  useEffect(() => {
     if (isAuthenticated || (typeof window !== 'undefined' && localStorage.getItem('forensic_token'))) {
       window.location.href = '/dashboard';
     }
@@ -40,12 +45,99 @@ export const Login: React.FC = () => {
 
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
 
-  // Login state
+  // Stage 1 vs Stage 2 state
+  // Stage 1: Hardware authentication (RFID + Fingerprint -> Ticket)
+  // Stage 2: Software credentials login (User ID + Password + Ticket -> JWT)
+  const isStage1Complete = !!stage1Ticket;
+
+  // Countdown timer for 5-minute single-use ticket
+  const [ticketSecondsLeft, setTicketSecondsLeft] = useState<number>(300);
+
+  useEffect(() => {
+    if (!stage1Ticket) {
+      setTicketSecondsLeft(300);
+      return;
+    }
+
+    const updateTimer = () => {
+      const now = Date.now();
+      const createdAt = stage1Ticket.timestamp || now;
+      const elapsed = Math.floor((now - createdAt) / 1000);
+      const remaining = Math.max(0, (stage1Ticket.expires_in_seconds || 300) - elapsed);
+      setTicketSecondsLeft(remaining);
+
+      if (remaining <= 0) {
+        clearStage1Ticket();
+        setError("Stage 1 Hardware Challenge Ticket expired (5-minute validity limit). Please re-authenticate on the ESP32 hardware.");
+      }
+    };
+
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+    return () => clearInterval(interval);
+  }, [stage1Ticket, clearStage1Ticket]);
+
+  // Stage 1 Telemetry & Bridge Status polling
+  const [stage1State, setStage1State] = useState<{
+    state: string;
+    bridge_status: string;
+    port: string;
+    baud_rate: number;
+    latest_event?: any;
+    detail?: string | null;
+  }>({
+    state: 'WAITING_CONNECTION',
+    bridge_status: 'Disconnected',
+    port: 'COM5',
+    baud_rate: 115200,
+    detail: null
+  });
+
+  const [isSimulatingStage1, setIsSimulatingStage1] = useState(false);
+
+  // Poll Stage 1 hardware status from FastAPI
+  useEffect(() => {
+    let isMounted = true;
+    const fetchStage1Status = async () => {
+      try {
+        const res = await api.get('/hardware/stage1-status');
+        if (!isMounted) return;
+        setStage1State(res.data);
+
+        // If backend reports an active valid ticket and we don't have it in context, load it
+        if (res.data.ticket && !stage1Ticket) {
+          setStage1Ticket({
+            ticket_id: res.data.ticket.ticket_id,
+            user_email: res.data.ticket.user_email,
+            user_name: res.data.ticket.user_name,
+            expires_in_seconds: res.data.ticket.expires_in_seconds || 300,
+            timestamp: Date.now()
+          });
+        }
+      } catch (_) {}
+    };
+
+    fetchStage1Status();
+    const interval = setInterval(fetchStage1Status, 1800);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [stage1Ticket, setStage1Ticket]);
+
+  // Login form state
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
 
-  // Signup state
+  // Automatically sync email when stage 1 ticket arrives
+  useEffect(() => {
+    if (stage1Ticket?.user_email && !email) {
+      setEmail(stage1Ticket.user_email);
+    }
+  }, [stage1Ticket]);
+
+  // Signup form state
   const [regName, setRegName] = useState('');
   const [regEmail, setRegEmail] = useState('');
   const [regPassword, setRegPassword] = useState('');
@@ -53,7 +145,7 @@ export const Login: React.FC = () => {
   const [regRole, setRegRole] = useState<'investigator' | 'admin' | 'readonly'>('investigator');
   const [showRegPassword, setShowRegPassword] = useState(false);
 
-  // Backend API URL Customization (for cloud/Railway deployments)
+  // Backend API URL Customization
   const [showApiConfig, setShowApiConfig] = useState(false);
   const [customApiUrl, setCustomApiUrl] = useState(
     typeof window !== 'undefined' ? localStorage.getItem('forensic_api_url') || '' : ''
@@ -80,9 +172,8 @@ export const Login: React.FC = () => {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [simulatingAuth, setSimulatingAuth] = useState<'rfid' | 'fingerprint' | null>(null);
 
-  // Web Serial for physically wired ESP32 over USB
+  // Web Serial directly in browser (alternative to Python bridge)
   const [usbConnected, setUsbConnected] = useState(false);
   const [usbPort, setUsbPort] = useState<any>(null);
 
@@ -99,7 +190,7 @@ export const Login: React.FC = () => {
     }
 
     if (!('serial' in navigator)) {
-      alert("Web Serial is supported in Google Chrome, Microsoft Edge, Opera, and Brave on PC/Mac. Please open the platform in Chrome or Edge to connect your USB hardware.");
+      alert("Web Serial is supported in Chrome, Edge, and Brave. Please use a Chromium-based browser to connect directly over USB.");
       return;
     }
 
@@ -108,22 +199,7 @@ export const Login: React.FC = () => {
       await port.open({ baudRate: 115200 });
       setUsbPort(port);
       setUsbConnected(true);
-
-      // Send initial heartbeat to mark node online
-      await api.post('/hardware/heartbeat', {
-        device: "ESP32_WIFI",
-        macAddress: "DA:51:53:00:95:7C",
-        firmwareVersion: "v1.0.4-forensic-usb"
-      });
-
-      // Keep sending periodic heartbeat while USB is connected
-      const hbInterval = setInterval(() => {
-        api.post('/hardware/heartbeat', {
-          device: "ESP32_WIFI",
-          macAddress: "DA:51:53:00:95:7C",
-          firmwareVersion: "v1.0.4-forensic-usb"
-        }).catch(console.error);
-      }, 15000);
+      setError(null);
 
       // Read serial stream in background
       const textDecoder = new TextDecoderStream();
@@ -143,78 +219,43 @@ export const Login: React.FC = () => {
               for (const line of lines) {
                 const trimmed = line.trim();
                 if (!trimmed) continue;
-                const cleanUpper = trimmed.replace(/[\s:-]/g, '').toUpperCase();
-                let targetRfid: string | null = null;
-                if (cleanUpper.includes('105B965C') || cleanUpper.includes('ADMIN')) {
-                  targetRfid = '105B965C';
-                } else if (cleanUpper.includes('C0A3CF54') || cleanUpper.includes('INVESTIGATOR')) {
-                  targetRfid = 'C0A3CF54';
-                } else {
-                  const hexMatch = trimmed.match(/([0-9a-fA-F]{2}[\s:-]?[0-9a-fA-F]{2}[\s:-]?[0-9a-fA-F]{2}[\s:-]?[0-9a-fA-F]{2})/i);
-                  if (hexMatch) {
-                    const candidate = hexMatch[1].replace(/[\s:-]/g, '').toUpperCase();
-                    if (candidate === '105B965C' || candidate === 'C0A3CF54') {
-                      targetRfid = candidate;
-                    }
-                  }
-                }
 
-                let targetFid: number | null = null;
-                if (trimmed === '6' || trimmed === '1' || trimmed === '2') {
-                  targetFid = parseInt(trimmed, 10);
-                } else {
-                  const fpMatch = trimmed.match(/(?:fingerprint|finger|id|fid|found|matched|match)\s*[:#]?\s*([126])\b/i);
-                  if (fpMatch) {
-                    targetFid = parseInt(fpMatch[1], 10);
-                  }
-                }
-
-                // If serial stream announced verification (e.g. "RFID Verified!", "Fingerprint Verified!")
-                if (cleanUpper.includes('VERIFIED') || cleanUpper.includes('GRANTED') || cleanUpper.includes('SUCCESS') || cleanUpper.includes('AUTHORIZED')) {
-                  if (!targetRfid && targetFid === null) {
-                    if (cleanUpper.includes('2') || cleanUpper.includes('INVESTIGATOR')) {
-                      targetFid = 2;
-                      targetRfid = 'C0A3CF54';
-                    } else {
-                      targetFid = 6;
-                      targetRfid = '105B965C';
-                    }
-                  }
-                }
-
-                if (targetRfid || targetFid !== null) {
-                  setError(null);
-                  setIsSubmitting(true);
+                // Send line to hardware events endpoint
+                if (trimmed.startsWith("CRYPTEVID")) {
                   try {
-                    const payload: any = {
-                      deviceId: "ESP32_WIFI",
-                      timestamp: new Date().toISOString()
-                    };
-                    if (targetRfid) payload.rfid = targetRfid;
-                    if (targetFid !== null) payload.fingerprintId = targetFid;
-
-                    console.log("[ESP32 USB]: Authenticating with payload:", payload);
-                    const res = await api.post('/hardware/authenticate', payload);
-                    if (res.data?.jwt) {
-                      authenticateWithToken(res.data.jwt, res.data.user);
-                      // Force immediate hard navigation to dashboard
-                      window.location.href = '/dashboard';
-                      return;
+                    const parts = trimmed.split("|");
+                    if (parts.length >= 5) {
+                      const status = parts[2] === "GRANTED" ? "GRANTED" : "DENIED";
+                      const uidPart = parts[3].replace("UID=", "");
+                      const reasonPart = parts[4].replace("REASON=", "");
+                      
+                      const evRes = await api.post("/hardware/events", {
+                        status,
+                        uid: uidPart,
+                        reason: reasonPart,
+                        raw_message: trimmed
+                      });
+                      
+                      if (evRes.data?.ticket_id) {
+                        setStage1Ticket({
+                          ticket_id: evRes.data.ticket_id,
+                          user_email: evRes.data.mapped_investigator?.email || "admin@forensics.gov",
+                          user_name: evRes.data.mapped_investigator?.name || "Chief Investigator",
+                          expires_in_seconds: evRes.data.expires_in_seconds || 300,
+                          timestamp: Date.now()
+                        });
+                      }
                     }
-                  } catch (authErr: any) {
-                    console.error("Hardware auth error:", authErr);
-                    setError(authErr.response?.data?.detail || "Hardware credential authentication failed.");
-                  } finally {
-                    setIsSubmitting(false);
+                  } catch (e) {
+                    console.error("Web serial event forward error:", e);
                   }
                 }
               }
             }
           }
         } catch (readErr) {
-          console.warn("Serial reader closed:", readErr);
+          console.warn("Web serial reader closed:", readErr);
         } finally {
-          clearInterval(hbInterval);
           try { reader.releaseLock(); } catch (_) {}
           setUsbConnected(false);
           setUsbPort(null);
@@ -222,23 +263,48 @@ export const Login: React.FC = () => {
       })();
     } catch (err: any) {
       if (err.name === 'NotFoundError') {
-        // User closed or dismissed the device picker dialog
-        return;
+        return; // User cancelled prompt
       }
       console.warn("Web Serial notice:", err);
-      // Check if Python hardware bridge is already running
-      try {
-        const bRes = await api.get('/hardware/bridge-status');
-        if (bRes.data?.status === 'Connected') {
-          setError(null);
-          return;
-        }
-      } catch (_) {}
-
-      setError("Serial COM port is in use or busy. If hardware_serial_bridge.py is running in a terminal, your ESP32 is already active and will authenticate automatically when you scan.");
+      if (stage1State.bridge_status === 'Connected') {
+        setError(null);
+        alert("The ESP32 is already connected via hardware_serial_bridge.py! You do not need in-browser Web Serial.");
+        return;
+      }
+      setError("Serial COM port could not be opened. Check if another program (like Arduino IDE or python bridge) is using it.");
     }
   };
 
+  // Trigger simulated Stage 1 Hardware Authentication
+  const handleSimulateStage1 = async () => {
+    setIsSimulatingStage1(true);
+    setError(null);
+    try {
+      const res = await api.post('/hardware/stage1-simulate', {
+        uid: "10 5B 96 5C",
+        email: "admin@forensics.gov",
+        fingerprint_id: 6
+      });
+
+      if (res.data?.success && res.data?.ticket_id) {
+        setStage1Ticket({
+          ticket_id: res.data.ticket_id,
+          user_email: res.data.user_email,
+          user_name: res.data.user_name || "Chief Investigator",
+          expires_in_seconds: res.data.expires_in_seconds || 300,
+          timestamp: Date.now()
+        });
+        setEmail(res.data.user_email);
+      }
+    } catch (err: any) {
+      console.error("Stage 1 simulation failed:", err);
+      setError(err.response?.data?.detail || "Stage 1 hardware simulation failed.");
+    } finally {
+      setIsSimulatingStage1(false);
+    }
+  };
+
+  // Handle Stage 2 Software Login Credentials Submission
   const handleCredentialsSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanId = email.trim();
@@ -247,7 +313,8 @@ export const Login: React.FC = () => {
     setIsSubmitting(true);
     setError(null);
     try {
-      await login(cleanId, password);
+      // Pass the single-use hardware ticket ID from Stage 1
+      await login(cleanId, password, stage1Ticket?.ticket_id);
       navigate('/dashboard', { replace: true });
     } catch (err: any) {
       console.error('Login error:', err);
@@ -255,8 +322,8 @@ export const Login: React.FC = () => {
         setError(err.response.data.detail);
       } else if (err.response?.status === 503) {
         setError(err.response?.data?.detail || 'Database service temporarily unavailable.');
-      } else if (err.response?.status === 500) {
-        setError('Server encountered an internal error. Please check server logs.');
+      } else if (err.response?.status === 401) {
+        setError('Incorrect password or invalid hardware ticket. Please verify your credentials.');
       } else if (!err.response) {
         setError(`Unable to connect to forensic backend (${getApiBaseUrl()}). Please ensure the service is running.`);
       } else {
@@ -301,47 +368,10 @@ export const Login: React.FC = () => {
     }
   };
 
-  // Simulate hardware input by posting to the hardware endpoint
-  const handleSimulateHardware = async (type: 'rfid' | 'fingerprint') => {
-    setSimulatingAuth(type);
-    setError(null);
-    try {
-      const payload = {
-        deviceId: "ESP32_01",
-        rfid: type === 'rfid' ? "105B965C" : undefined,
-        fingerprintId: type === 'fingerprint' ? 6 : undefined,
-        timestamp: new Date().toISOString()
-      };
-
-      const res = await api.post('/hardware/authenticate', payload);
-      
-      if (res.data.success && res.data.jwt) {
-        authenticateWithToken(res.data.jwt, res.data.user);
-        window.location.href = '/dashboard';
-      } else {
-        setError("Hardware verification failed: Identifier not bound to active forensic investigator profile.");
-      }
-    } catch (err: any) {
-      console.error(err);
-      if (err.response?.data?.detail) {
-        setError(err.response.data.detail);
-      } else if (!err.response) {
-        setError("Unable to connect to backend service. Please verify server status.");
-      } else {
-        setError("Hardware simulation authentication failed.");
-      }
-    } finally {
-      setIsSubmitting(false);
-      setSimulatingAuth(null);
-    }
-  };
-
-  // Quick Demo Credentials helper
-  const handleFillDemo = (demoEmail: string, demoPass: string) => {
-    setAuthMode('login');
-    setEmail(demoEmail);
-    setPassword(demoPass);
-    setError(null);
+  const formatCountdown = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
   return (
@@ -351,7 +381,7 @@ export const Login: React.FC = () => {
       <div className="absolute top-1/2 -right-32 w-96 h-96 rounded-full bg-amber-100/60 blur-[120px] pointer-events-none" />
 
       {/* Back to Platform Overview Link */}
-      <div className="w-full max-w-md mb-3 flex flex-wrap items-center justify-between gap-2 z-10 px-1">
+      <div className="w-full max-w-lg mb-3 flex flex-wrap items-center justify-between gap-2 z-10 px-1">
         <Link
           to="/"
           className="text-xs text-slate-500 hover:text-slate-900 flex items-center gap-1.5 transition-colors font-medium"
@@ -359,11 +389,11 @@ export const Login: React.FC = () => {
           <ArrowLeft className="w-3.5 h-3.5" />
           <span>Back to Platform Overview</span>
         </Link>
-        <span className="text-[10px] sm:text-[11px] text-slate-400 font-mono">ISO/IEC 27037 Standard</span>
+        <span className="text-[10px] sm:text-[11px] text-slate-400 font-mono">ISO/IEC 27037 Standard • Two-Stage Auth</span>
       </div>
 
-      {/* Light Professional Login Container */}
-      <div className="w-full max-w-md bg-white border border-slate-200/90 rounded-2xl p-4.5 sm:p-7 space-y-4 sm:space-y-5 relative z-10 shadow-2xl shadow-slate-900/5 animate-fade-in-up">
+      {/* Main Terminal Container */}
+      <div className="w-full max-w-lg bg-white border border-slate-200/90 rounded-2xl p-5 sm:p-7 space-y-5 relative z-10 shadow-2xl shadow-slate-900/5 animate-fade-in-up">
         {/* Terminal Header */}
         <div className="flex items-center justify-between border-b border-slate-200 pb-4">
           <div className="flex items-center gap-3">
@@ -383,30 +413,33 @@ export const Login: React.FC = () => {
           </div>
         </div>
 
-        {/* Tab Switcher: Sign In / Register Account */}
-        <div className="flex rounded-xl bg-slate-100 p-1 border border-slate-200 text-xs font-semibold">
-          <button
-            type="button"
-            onClick={() => { setAuthMode('login'); setError(null); }}
-            className={`flex-1 py-1.5 rounded-lg transition-all ${
-              authMode === 'login'
-                ? 'bg-white text-slate-900 shadow-xs border border-slate-200 font-bold'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            Investigator Sign In
-          </button>
-          <button
-            type="button"
-            onClick={() => { setAuthMode('signup'); setError(null); }}
-            className={`flex-1 py-1.5 rounded-lg transition-all ${
-              authMode === 'signup'
-                ? 'bg-white text-slate-900 shadow-xs border border-slate-200 font-bold'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            Register Account
-          </button>
+        {/* Two-Stage Progress Indicator */}
+        <div className="rounded-xl bg-slate-50 border border-slate-200 p-3">
+          <div className="flex items-center justify-between text-xs font-semibold">
+            {/* Stage 1 Step */}
+            <div className={`flex items-center gap-2 ${isStage1Complete ? 'text-emerald-700' : 'text-blue-700 font-bold'}`}>
+              <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-mono font-bold ${
+                isStage1Complete ? 'bg-emerald-100 text-emerald-700 border border-emerald-300' : 'bg-blue-600 text-white'
+              }`}>
+                {isStage1Complete ? <CheckCircle2 className="w-4 h-4" /> : '1'}
+              </div>
+              <span className="text-xs">Stage 1: Hardware Auth</span>
+            </div>
+
+            <ArrowRight className="w-3.5 h-3.5 text-slate-400" />
+
+            {/* Stage 2 Step */}
+            <div className={`flex items-center gap-2 ${
+              isStage1Complete ? 'text-blue-700 font-bold' : 'text-slate-400'
+            }`}>
+              <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-mono font-bold ${
+                isStage1Complete ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-500'
+              }`}>
+                {isStage1Complete ? '2' : <Lock className="w-3 h-3" />}
+              </div>
+              <span className="text-xs">Stage 2: Software Login</span>
+            </div>
+          </div>
         </div>
 
         {/* Global Error Banner */}
@@ -417,196 +450,248 @@ export const Login: React.FC = () => {
           </div>
         )}
 
-        {/* ESP32 Hardware Status Badge */}
+        {/* Hardware Status Strip */}
         <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-between text-xs">
           <div className="flex items-center gap-2 text-slate-600">
             <Cpu className="w-3.5 h-3.5 text-amber-600" />
-            <span className="text-[11px] font-mono font-semibold">HARDWARE NODE (ESP32):</span>
+            <span className="text-[11px] font-mono font-semibold">ESP32 PORT ({stage1State.port}):</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className={`w-2 h-2 rounded-full ${deviceStatus === 'online' || usbConnected ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`}></span>
-            <span className={`text-[11px] font-mono font-bold ${deviceStatus === 'online' || usbConnected ? 'text-emerald-700' : 'text-red-600'}`}>
-              {deviceStatus === 'online' || usbConnected ? 'NODE ONLINE' : 'NODE OFFLINE'}
+            <span className={`w-2 h-2 rounded-full ${
+              stage1State.bridge_status === 'Connected' || usbConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'
+            }`}></span>
+            <span className={`text-[11px] font-mono font-bold ${
+              stage1State.bridge_status === 'Connected' || usbConnected ? 'text-emerald-700' : 'text-slate-600'
+            }`}>
+              {stage1State.bridge_status === 'Connected' || usbConnected ? 'BRIDGE ONLINE' : 'LISTENING'}
             </span>
             <button
               type="button"
               onClick={handleConnectUsb}
               className={`text-[10px] px-2 py-0.5 rounded font-mono font-semibold transition-all flex items-center gap-1 cursor-pointer ${
-                deviceStatus === 'online' || usbConnected
+                stage1State.bridge_status === 'Connected' || usbConnected
                   ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
                   : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200'
               }`}
-              title={deviceStatus === 'online' || usbConnected ? "ESP32 hardware is connected and listening" : "Connect wired ESP32 directly via USB COM port"}
             >
               <Usb className="w-3 h-3" />
-              <span>{deviceStatus === 'online' || usbConnected ? 'USB Connected' : 'Connect USB Wire'}</span>
+              <span>{stage1State.bridge_status === 'Connected' || usbConnected ? 'USB Active' : 'Connect USB Wire'}</span>
             </button>
           </div>
         </div>
 
-        {/* TAB 1: LOGIN FORM */}
-        {authMode === 'login' && (
-          <>
-            {!simulationMode ? (
-              /* Pure Physical Hardware Auth */
-              <div className="py-6 text-center space-y-4">
-                <div className="w-20 h-20 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center mx-auto text-amber-600 shadow-sm relative">
-                  <Fingerprint className={`w-10 h-10 ${isSubmitting ? 'text-emerald-600 animate-spin' : 'animate-pulse'}`} />
-                  {isSubmitting && (
-                    <span className="absolute -top-1 -right-1 flex h-4 w-4">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-4 w-4 bg-emerald-500"></span>
-                    </span>
-                  )}
+        {/* =========================================================================
+            STAGE 1: HARDWARE AUTHENTICATION CARD
+            Active when no challenge ticket exists
+            ========================================================================= */}
+        {!isStage1Complete && authMode === 'login' && (
+          <div className="space-y-4">
+            <div className="p-4 rounded-xl border border-blue-100 bg-blue-50/50 space-y-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
+                  <Fingerprint className="w-5 h-5 animate-pulse" />
                 </div>
-                <div className="text-xs font-bold text-slate-800 uppercase tracking-wider font-mono">
-                  {isSubmitting ? 'Hardware Verified! Opening Station...' : 'Physical Hardware Token Required'}
-                </div>
-                <p className="text-xs text-slate-500 max-w-xs mx-auto leading-relaxed">
-                  {isSubmitting 
-                    ? 'Cryptographic handshake complete. Initializing forensic session...'
-                    : 'Standard credentials locked. Scan your registered RFID badge (10 5B 96 5C) or place your verified finger on sensor.'}
-                </p>
-
-                <div className="pt-2">
-                  <button
-                    type="button"
-                    onClick={() => handleSimulateHardware('rfid')}
-                    disabled={isSubmitting}
-                    className="ws-btn ws-btn-primary w-full py-2.5 text-xs flex items-center justify-center gap-2 cursor-pointer shadow-sm"
-                  >
-                    <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                    <span>Unlock Station (Hardware Verified)</span>
-                  </button>
+                <div>
+                  <h3 className="text-xs font-bold text-slate-900 font-sans">
+                    Stage 1 — ESP32 Physical Authentication
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Scan authorized RFID badge and verify fingerprint on the hardware terminal.
+                  </p>
                 </div>
               </div>
-            ) : (
-              /* Standard Credential Login */
-              <form onSubmit={handleCredentialsSubmit} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1.5 font-sans">
-                    Investigator Identity (Email or Username)
-                  </label>
-                  <input
-                    type="text"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="admin@forensics.gov or admin"
-                    className="ws-input w-full"
-                    autoCapitalize="none"
-                    autoCorrect="off"
-                    autoComplete="username"
-                    required
-                  />
-                </div>
 
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1.5 font-sans">
-                    Access Passphrase / Key
-                  </label>
-                  <div className="relative">
-                    <input
-                      type={showPassword ? 'text' : 'password'}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="••••••••••••"
-                      className="ws-input w-full pr-10"
-                      required
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
-                    >
-                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Quick Demo Credentials */}
-                <div className="flex items-center justify-between text-[11px] text-slate-500 pt-0.5">
-                  <span>Demo profiles:</span>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleFillDemo('admin@forensics.gov', 'password123')}
-                      className="text-amber-700 font-semibold hover:underline"
-                    >
-                      Admin
-                    </button>
-                    <span>•</span>
-                    <button
-                      type="button"
-                      onClick={() => handleFillDemo('investigator@forensics.gov', 'password123')}
-                      className="text-blue-700 font-semibold hover:underline"
-                    >
-                      Investigator
-                    </button>
-                  </div>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="w-full ws-btn ws-btn-amber py-2.5 text-xs flex items-center justify-center gap-2 mt-2 disabled:opacity-50"
-                >
-                  {isSubmitting ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Validating Cryptographic Credentials...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Lock className="w-4 h-4" />
-                      <span>Authenticate Workstation</span>
-                    </>
-                  )}
-                </button>
-              </form>
-            )}
-
-            {/* Hardware Simulator Drawer */}
-            {simulationMode && (
-              <div className="pt-3 border-t border-slate-200 space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-bold text-slate-600 uppercase font-mono tracking-wider">
-                    Hardware Node Simulation
+              {/* Hardware State Status Card */}
+              <div className="p-3 rounded-lg bg-white border border-slate-200 space-y-2">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="font-mono text-slate-500">HARDWARE TERMINAL STATE:</span>
+                  <span className="font-mono font-bold text-blue-700 flex items-center gap-1">
+                    <Radio className="w-3 h-3 text-blue-600 animate-ping" />
+                    {stage1State.state}
                   </span>
                 </div>
+                <p className="text-xs text-slate-700 font-medium">
+                  {stage1State.detail || "Connect ESP32 USB wire or launch hardware_serial_bridge.py."}
+                </p>
+              </div>
 
-                <div className="grid grid-cols-2 gap-2">
+              {/* Interactive Step Progress Items */}
+              <div className="grid grid-cols-2 gap-2 text-[11px]">
+                <div className="p-2 rounded bg-white border border-slate-200 flex items-center gap-2">
+                  <Scan className="w-4 h-4 text-amber-600" />
+                  <div>
+                    <span className="block font-semibold text-slate-800">RFID Scanner</span>
+                    <span className="text-[10px] text-slate-500 font-mono">Card: 10 5B 96 5C</span>
+                  </div>
+                </div>
+
+                <div className="p-2 rounded bg-white border border-slate-200 flex items-center gap-2">
+                  <Fingerprint className="w-4 h-4 text-emerald-600" />
+                  <div>
+                    <span className="block font-semibold text-slate-800">Biometric Sensor</span>
+                    <span className="text-[10px] text-slate-500 font-mono">Fingerprint ID: 6</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Simulation / Testing Action */}
+            <div className="pt-1">
+              <button
+                type="button"
+                onClick={handleSimulateStage1}
+                disabled={isSimulatingStage1}
+                className="ws-btn ws-btn-amber w-full py-2.5 text-xs flex items-center justify-center gap-2 shadow-xs cursor-pointer"
+              >
+                {isSimulatingStage1 ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Generating Stage 1 Challenge Ticket...</span>
+                  </>
+                ) : (
+                  <>
+                    <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                    <span>Simulate Hardware Verification (Demo Mode)</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* =========================================================================
+            STAGE 2: SOFTWARE LOGIN CARD
+            Active once Stage 1 issues a valid challenge ticket
+            ========================================================= */}
+        {isStage1Complete && authMode === 'login' && (
+          <div className="space-y-4">
+            {/* Stage 1 Verified Identity Banner */}
+            <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 space-y-2 shadow-xs">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  <span className="text-xs font-bold font-sans">
+                    Stage 1 Verified: {stage1Ticket.user_name}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-emerald-100/80 border border-emerald-300 font-mono text-[11px] font-bold text-emerald-800">
+                  <Clock className="w-3.5 h-3.5 text-emerald-700" />
+                  <span>{formatCountdown(ticketSecondsLeft)}</span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between text-[11px] text-emerald-700 font-mono pt-1 border-t border-emerald-200/60">
+                <span className="truncate max-w-[220px]">Ticket: {stage1Ticket.ticket_id}</span>
+                <button
+                  type="button"
+                  onClick={() => clearStage1Ticket()}
+                  className="text-red-600 hover:text-red-800 hover:underline font-sans text-[11px] cursor-pointer"
+                >
+                  Rescan Hardware
+                </button>
+              </div>
+            </div>
+
+            {/* Software Passphrase Form */}
+            <form onSubmit={handleCredentialsSubmit} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5 font-sans">
+                  Investigator User ID / Email
+                </label>
+                <input
+                  type="text"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="admin@forensics.gov"
+                  className="ws-input w-full font-mono text-xs"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  autoComplete="username"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5 font-sans">
+                  Investigator Access Passphrase
+                </label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Enter password (e.g. password123)"
+                    className="ws-input w-full pr-10 text-xs font-mono"
+                    required
+                  />
                   <button
                     type="button"
-                    onClick={() => handleSimulateHardware('rfid')}
-                    disabled={simulatingAuth !== null}
-                    className="ws-btn ws-btn-secondary p-2 text-xs flex items-center justify-center gap-2 disabled:opacity-50"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
                   >
-                    {simulatingAuth === 'rfid' ? (
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-600" />
-                    ) : (
-                      <Scan className="w-3.5 h-3.5 text-amber-600" />
-                    )}
-                    <span>Simulate RFID</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleSimulateHardware('fingerprint')}
-                    disabled={simulatingAuth !== null}
-                    className="ws-btn ws-btn-secondary p-2 text-xs flex items-center justify-center gap-2 disabled:opacity-50"
-                  >
-                    {simulatingAuth === 'fingerprint' ? (
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-600" />
-                    ) : (
-                      <Fingerprint className="w-3.5 h-3.5 text-amber-600" />
-                    )}
-                    <span>Simulate Bio</span>
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
               </div>
-            )}
-          </>
+
+              {/* Quick Fill Credentials button */}
+              <div className="flex items-center justify-between text-[11px] text-slate-500 pt-0.5">
+                <span>Default Passphrase:</span>
+                <button
+                  type="button"
+                  onClick={() => setPassword('password123')}
+                  className="text-amber-700 font-semibold hover:underline"
+                >
+                  Use Default (password123)
+                </button>
+              </div>
+
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="w-full ws-btn ws-btn-primary py-2.5 text-xs flex items-center justify-center gap-2 mt-2 disabled:opacity-50 cursor-pointer shadow-xs"
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Consuming Hardware Ticket & Authenticating...</span>
+                  </>
+                ) : (
+                  <>
+                    <Unlock className="w-4 h-4 text-emerald-400" />
+                    <span>Complete Software Login & Enter Workstation</span>
+                  </>
+                )}
+              </button>
+            </form>
+          </div>
         )}
+
+        {/* Tab Switcher: Sign In / Register Account */}
+        <div className="flex rounded-xl bg-slate-100 p-1 border border-slate-200 text-xs font-semibold">
+          <button
+            type="button"
+            onClick={() => { setAuthMode('login'); setError(null); }}
+            className={`flex-1 py-1.5 rounded-lg transition-all cursor-pointer ${
+              authMode === 'login'
+                ? 'bg-white text-slate-900 shadow-xs border border-slate-200 font-bold'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            Investigator Sign In
+          </button>
+          <button
+            type="button"
+            onClick={() => { setAuthMode('signup'); setError(null); }}
+            className={`flex-1 py-1.5 rounded-lg transition-all cursor-pointer ${
+              authMode === 'signup'
+                ? 'bg-white text-slate-900 shadow-xs border border-slate-200 font-bold'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            Register Account
+          </button>
+        </div>
 
         {/* TAB 2: SIGN UP FORM */}
         {authMode === 'signup' && (
@@ -696,7 +781,7 @@ export const Login: React.FC = () => {
             <button
               type="submit"
               disabled={isSubmitting}
-              className="w-full ws-btn ws-btn-amber py-2.5 text-xs flex items-center justify-center gap-2 mt-2"
+              className="w-full ws-btn ws-btn-amber py-2.5 text-xs flex items-center justify-center gap-2 mt-2 cursor-pointer"
             >
               {isSubmitting ? (
                 <>
@@ -713,7 +798,7 @@ export const Login: React.FC = () => {
           </form>
         )}
 
-        {/* Cloud / Railway Backend Connection Settings */}
+        {/* Cloud Backend Connection Settings */}
         <div className="pt-2 border-t border-slate-100">
           <div className="flex items-center justify-between">
             <button
@@ -729,7 +814,7 @@ export const Login: React.FC = () => {
             <button
               type="button"
               onClick={() => setShowApiConfig(!showApiConfig)}
-              className="text-[10px] text-blue-600 hover:underline font-mono"
+              className="text-[10px] text-blue-600 hover:underline font-mono cursor-pointer"
             >
               {showApiConfig ? 'Hide' : 'Configure'}
             </button>
@@ -779,7 +864,7 @@ export const Login: React.FC = () => {
           <button
             type="button"
             onClick={() => setSimulationMode(!simulationMode)}
-            className="text-blue-600 hover:text-blue-800 hover:underline font-semibold text-xs"
+            className="text-blue-600 hover:text-blue-800 hover:underline font-semibold text-xs cursor-pointer"
           >
             Switch to {simulationMode ? "Hardware-Only" : "Simulation"} Mode
           </button>

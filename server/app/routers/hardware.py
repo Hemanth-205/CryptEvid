@@ -11,7 +11,9 @@ from app.core.ws import ws_manager
 from app.models.hardware import (
     HardwareSerialEventPayload,
     HardwareBridgeHeartbeatPayload,
-    HardwareBridgeStatusResponse
+    HardwareBridgeStatusResponse,
+    HardwareTicketResponse,
+    HardwareStageStateResponse
 )
 from app.repositories.hardware import HardwareRepository
 from app.repositories.user import UserRepository
@@ -167,46 +169,48 @@ async def ingest_hardware_serial_event(
     except Exception as ae:
         logger.error(f"Failed to create audit log entry for hardware event: {ae}")
 
-    # 5. If identity verified on hardware, populate hardware auth session and broadcast login token
-    auth_token = None
+    # 5. Mandatory Stage 1 Hardware Verification Challenge Ticket
+    # Crucial security rule: Hardware success alone NEVER authorizes dashboard access!
+    # Instead, issue a short-lived (5 min), single-use challenge ticket required for Stage 2 software login.
+    ticket_doc = None
     if is_identity_verified and user:
         try:
-            auth_token = create_access_token(subject=user["email"], role=user["role"])
-            user_copy = user.copy()
-            user_copy.pop("hashed_password", None)
-            user_copy["_id"] = str(user_copy.get("_id", ""))
-
-            now_iso = now.isoformat()
-            _latest_hardware_auth["latest"] = {
-                "device_id": payload.device_id,
-                "token": auth_token,
-                "user": user_copy,
-                "auth_method": f"USB Serial RFID ({payload.uid})",
-                "authenticated_at": now_iso
-            }
-
-            await db["hardware_sessions"].replace_one(
-                {"key": "latest_hardware_auth"},
-                {
-                    "key": "latest_hardware_auth",
-                    "device_id": payload.device_id,
-                    "token": auth_token,
-                    "user": user_copy,
-                    "auth_method": f"USB Serial RFID ({payload.uid})",
-                    "authenticated_at": now
-                },
-                upsert=True
+            ticket_doc = await hardware_repo.create_auth_ticket(
+                uid=payload.uid,
+                user_id=str(user["_id"]),
+                user_email=user["email"],
+                user_name=user.get("name", "Investigator"),
+                user_role=user.get("role", "investigator"),
+                ttl_seconds=300 # 5 minutes TTL
             )
 
+            # Broadcast Stage 1 success to frontend (advances UI state machine to Stage 2)
             await ws_manager.broadcast({
-                "type": "hardware_auth_success",
-                "token": auth_token,
-                "user": user_copy
+                "type": "hardware_stage1_success",
+                "ticket_id": ticket_doc["ticket_id"],
+                "device_id": payload.device_id,
+                "uid": payload.uid,
+                "user_name": user.get("name", "Investigator"),
+                "user_email": user["email"],
+                "expires_in_seconds": ticket_doc["expires_in_seconds"]
             })
-        except Exception as he:
-            logger.warning(f"Error provisioning hardware login session: {he}")
+            logger.info(f"Generated single-use Stage 1 challenge ticket {ticket_doc['ticket_id']} for {user['email']}")
+        except Exception as te:
+            logger.error(f"Error generating Stage 1 hardware challenge ticket: {te}")
+    elif payload.status == "DENIED":
+        try:
+            # Broadcast Stage 1 denied event to frontend
+            await ws_manager.broadcast({
+                "type": "hardware_stage1_denied",
+                "device_id": payload.device_id,
+                "uid": payload.uid,
+                "reason": payload.reason,
+                "notes": verification_notes
+            })
+        except Exception as de:
+            logger.warning(f"Error broadcasting hardware denial: {de}")
 
-    # 6. Broadcast to connected WebSocket clients for real-time dashboard updates
+    # 6. Broadcast telemetry event to connected WebSocket clients for real-time dashboard telemetry
     try:
         await ws_manager.broadcast({
             "type": "hardware_serial_event",
@@ -222,6 +226,8 @@ async def ingest_hardware_serial_event(
         "is_identity_verified": is_identity_verified,
         "mapped_investigator": mapped_investigator,
         "notes": verification_notes,
+        "ticket_id": ticket_doc["ticket_id"] if ticket_doc else None,
+        "expires_in_seconds": ticket_doc.get("expires_in_seconds", 300) if ticket_doc else None,
         "timestamp": now.isoformat()
     }
 
@@ -314,3 +320,218 @@ async def list_hardware_events(
     hardware_repo = HardwareRepository(db)
     events = await hardware_repo.list_events(limit=limit, status_filter=status_filter)
     return {"events": events, "count": len(events)}
+
+@router.get("/latest-ticket")
+async def get_latest_hardware_ticket():
+    """Retrieve the current active unconsumed hardware challenge ticket."""
+    db = get_database()
+    hardware_repo = HardwareRepository(db)
+    ticket = await hardware_repo.get_latest_valid_ticket()
+    if not ticket:
+        return {"ticket": None, "has_valid_ticket": False}
+    return {
+        "ticket": ticket,
+        "has_valid_ticket": True
+    }
+
+@router.get("/stage1-status", response_model=HardwareStageStateResponse)
+async def get_stage1_status():
+    """
+    Get real-time status of Stage 1 Hardware Authentication.
+    Evaluates:
+    - Serial bridge connection state
+    - Port and baud rate
+    - Active valid challenge ticket if available
+    - State machine stage:
+        * 'WAITING_CONNECTION' (bridge offline)
+        * 'ERROR' (bridge reports port error / busy)
+        * 'WAITING_RFID' (bridge connected, waiting for RFID scan)
+        * 'SUCCESS' (RFID + Fingerprint verified, valid challenge ticket issued)
+        * 'DENIED' (recent access denial)
+    """
+    db = get_database()
+    hardware_repo = HardwareRepository(db)
+    
+    bridge_state = await hardware_repo.get_bridge_state()
+    latest_event = await hardware_repo.get_latest_event()
+    latest_ticket = await hardware_repo.get_latest_valid_ticket()
+    
+    now = datetime.now(timezone.utc)
+    port = settings.ESP32_COM_PORT
+    baud = settings.ESP32_BAUD_RATE
+    bridge_status = "Disconnected"
+    detail = None
+    
+    if bridge_state:
+        port = bridge_state.get("port", port)
+        baud = bridge_state.get("baud_rate", baud)
+        last_hb = bridge_state.get("last_heartbeat")
+        if last_hb and last_hb.tzinfo is None:
+            last_hb = last_hb.replace(tzinfo=timezone.utc)
+        
+        is_fresh = last_hb and (now - last_hb).total_seconds() <= 12.0
+        rep_status = bridge_state.get("status", "Disconnected")
+        
+        if not is_fresh:
+            bridge_status = "Disconnected"
+            detail = "Hardware bridge heartbeat timed out"
+        elif rep_status == "Error":
+            bridge_status = "Error"
+            detail = bridge_state.get("error_message") or "Serial port error"
+        elif rep_status == "Connected":
+            bridge_status = "Connected"
+            detail = "Hardware terminal ready"
+            
+    # Determine UI State Machine Stage
+    if latest_ticket:
+        state = "SUCCESS"
+        detail = f"Stage 1 verified for {latest_ticket.get('user_name', 'Investigator')}. Software login required."
+    elif bridge_status == "Error":
+        state = "ERROR"
+    elif bridge_status == "Disconnected":
+        state = "WAITING_CONNECTION"
+        detail = "Connect ESP32 USB wire or start hardware bridge"
+    else:
+        # Bridge is connected
+        if latest_event:
+            ev_time = latest_event.get("timestamp")
+            if isinstance(ev_time, str):
+                try:
+                    ev_time = datetime.fromisoformat(ev_time)
+                except Exception:
+                    ev_time = None
+            if ev_time and ev_time.tzinfo is None:
+                ev_time = ev_time.replace(tzinfo=timezone.utc)
+                
+            is_recent = ev_time and (now - ev_time).total_seconds() <= 20.0
+            if is_recent and latest_event.get("status") == "DENIED":
+                state = "DENIED"
+                detail = latest_event.get("notes") or latest_event.get("reason", "Access denied by hardware")
+            else:
+                state = "WAITING_RFID"
+                detail = "Hardware connected. Present authorized RFID card to reader."
+        else:
+            state = "WAITING_RFID"
+            detail = "Hardware connected. Present authorized RFID card to reader."
+
+    ticket_resp = None
+    if latest_ticket:
+        created_at_str = latest_ticket.get("created_at")
+        if isinstance(created_at_str, datetime):
+            created_at_str = created_at_str.isoformat()
+        expires_at_str = latest_ticket.get("expires_at")
+        if isinstance(expires_at_str, datetime):
+            expires_at_str = expires_at_str.isoformat()
+            
+        ticket_resp = HardwareTicketResponse(
+            ticket_id=latest_ticket["ticket_id"],
+            uid=latest_ticket.get("uid", ""),
+            user_name=latest_ticket.get("user_name", "Investigator"),
+            user_email=latest_ticket.get("user_email", ""),
+            status=latest_ticket.get("status", "VALID"),
+            created_at=str(created_at_str or ""),
+            expires_at=str(expires_at_str or ""),
+            expires_in_seconds=latest_ticket.get("expires_in_seconds", 300)
+        )
+
+    return HardwareStageStateResponse(
+        state=state,
+        bridge_status=bridge_status,
+        port=port,
+        baud_rate=baud,
+        latest_event=latest_event,
+        ticket=ticket_resp,
+        detail=detail
+    )
+
+from pydantic import BaseModel as PyBaseModel
+class HardwareSimulateRequest(PyBaseModel):
+    uid: Optional[str] = "10 5B 96 5C"
+    email: Optional[str] = "admin@forensics.gov"
+    fingerprint_id: Optional[int] = 6
+
+@router.post("/stage1-simulate")
+async def simulate_stage1_auth(payload: HardwareSimulateRequest):
+    """
+    Simulate a successful Stage 1 Hardware Authentication event.
+    Issues a cryptographically unique 5-minute single-use challenge ticket
+    and broadcasts the event across WebSockets to trigger Stage 2 software login.
+    """
+    db = get_database()
+    user_repo = UserRepository(db)
+    hardware_repo = HardwareRepository(db)
+    audit_repo = AuditRepository(db)
+    
+    # Locate investigator
+    user = None
+    if payload.email:
+        user = await user_repo.get_by_email(payload.email)
+    if not user and payload.uid:
+        clean_uid = payload.uid.replace(" ", "").upper()
+        all_users = await user_repo.list_users()
+        for u in all_users:
+            if u.get("rfid") and u["rfid"].replace(" ", "").upper() == clean_uid:
+                user = u
+                break
+                
+    if not user:
+        # Fallback to chief investigator
+        user = await user_repo.get_by_email("admin@forensics.gov")
+        if not user:
+            all_users = await user_repo.list_users()
+            user = all_users[0] if all_users else None
+            
+    if not user:
+        raise HTTPException(status_code=404, detail="No registered investigator found for simulation.")
+
+    # Create ticket
+    ticket_doc = await hardware_repo.create_auth_ticket(
+        uid=payload.uid or "10 5B 96 5C",
+        user_id=str(user["_id"]),
+        user_email=user["email"],
+        user_name=user.get("name", "Chief Investigator"),
+        user_role=user.get("role", "admin"),
+        ttl_seconds=300
+    )
+    
+    # Save event
+    now = datetime.now(timezone.utc)
+    event_id = str(uuid.uuid4())
+    saved_event = await hardware_repo.save_event({
+        "event_id": event_id,
+        "protocol_version": 1,
+        "status": "GRANTED",
+        "uid": payload.uid or "10 5B 96 5C",
+        "reason": "SIMULATED_AUTH_SUCCESS",
+        "device_id": "SIMULATOR_ESP32",
+        "raw_message": f"CRYPTEVID|1|GRANTED|UID={payload.uid or '10 5B 96 5C'}|REASON=SIMULATED",
+        "verified_user": {
+            "user_id": str(user["_id"]),
+            "email": user["email"],
+            "name": user.get("name", "Chief Investigator"),
+            "role": user.get("role", "admin")
+        },
+        "ticket_id": ticket_doc["ticket_id"],
+        "timestamp": now
+    })
+    
+    # Broadcast Stage 1 success to all frontend listeners
+    await ws_manager.broadcast({
+        "type": "hardware_stage1_success",
+        "ticket_id": ticket_doc["ticket_id"],
+        "device_id": "SIMULATOR_ESP32",
+        "uid": payload.uid or "10 5B 96 5C",
+        "user_name": user.get("name", "Chief Investigator"),
+        "user_email": user["email"],
+        "expires_in_seconds": ticket_doc["expires_in_seconds"]
+    })
+    
+    return {
+        "success": True,
+        "simulated": True,
+        "ticket_id": ticket_doc["ticket_id"],
+        "user_email": user["email"],
+        "user_name": user.get("name"),
+        "expires_in_seconds": ticket_doc["expires_in_seconds"],
+        "message": f"Stage 1 simulated successfully for {user['email']}. Challenge ticket issued."
+    }

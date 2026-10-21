@@ -12,6 +12,7 @@ from app.core.ws import ws_manager
 from app.repositories.user import UserRepository
 from app.repositories.device import DeviceRepository
 from app.repositories.audit import AuditRepository
+from app.repositories.hardware import HardwareRepository
 from app.routers.settings import get_current_simulation_mode
 
 router = APIRouter(tags=["auth"])
@@ -123,15 +124,32 @@ async def login(payload: UserLogin, request: Request):
     db = get_database()
     user_repo = UserRepository(db)
     audit_repo = AuditRepository(db)
+    hardware_repo = HardwareRepository(db)
     
     # Check simulation mode status
     sim_mode = get_current_simulation_mode()
-    if not sim_mode:
-        # Hard mode is active: standard username/pwd is disabled!
+    has_ticket = bool(payload.hardware_ticket_id and payload.hardware_ticket_id.strip())
+
+    # Mandatory Two-Stage Authentication Rule:
+    # If Hardware Mode is active (sim_mode is False), Stage 1 hardware challenge ticket is required.
+    if not sim_mode and not has_ticket:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Standard authentication is disabled. A physical ESP32 Hardware Authentication (RFID/Fingerprint) is required."
+            detail="Stage 1 Hardware Authentication is mandatory. Please authenticate using the ESP32 hardware terminal (RFID + Fingerprint) before entering credentials."
         )
+
+    # If a hardware ticket is provided (either in Hardware Mode or Simulation Mode),
+    # verify its integrity and identity binding BEFORE verifying credentials.
+    if has_ticket:
+        is_valid, ticket_msg, ticket_doc = await hardware_repo.verify_ticket_only(
+            ticket_id=payload.hardware_ticket_id,
+            email=payload.email
+        )
+        if not is_valid:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=f"Stage 1 Hardware Ticket validation failed: {ticket_msg}"
+            )
 
     try:
         user = await asyncio.wait_for(user_repo.get_by_email(payload.email), timeout=5.0)
@@ -166,7 +184,7 @@ async def login(payload: UserLogin, request: Request):
                 action="login_failed",
                 ip_address=request.client.host if request.client else "127.0.0.1",
                 user_agent=request.headers.get("user-agent", "unknown"),
-                details=f"Failed login attempt for identifier: {payload.email}"
+                details=f"Failed Stage 2 login attempt for identifier: {payload.email}"
             )
         except Exception as e:
             print(f"[AUDIT_LOG_ERR] {e}")
@@ -180,7 +198,7 @@ async def login(payload: UserLogin, request: Request):
 
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username/email or password. Valid default credentials: admin / password123 or admin123"
+            detail="Incorrect username/email or password."
         )
     
     if not user.get("is_active"):
@@ -189,17 +207,27 @@ async def login(payload: UserLogin, request: Request):
             detail="Account is deactivated"
         )
 
-    # Generate JWT
+    # Software credentials verified! Now ATOMICALLY consume the hardware ticket
+    # so it can NEVER be reused or replayed.
+    if has_ticket:
+        consumed = await hardware_repo.consume_ticket(payload.hardware_ticket_id)
+        if not consumed:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Hardware verification challenge ticket has already been consumed or invalidated."
+            )
+
+    # Generate full JWT session token
     token = create_access_token(subject=user["email"], role=user["role"])
     
     # Audit success
     try:
         await audit_repo.create_log(
             user_id=user.get("_id"),
-            action="login",
+            action="login_stage2_success" if has_ticket else "login",
             ip_address=request.client.host if request.client else "127.0.0.1",
             user_agent=request.headers.get("user-agent", "unknown"),
-            details="Standard credential authentication successful."
+            details=f"Investigator {user['name']} completed Two-Stage Authentication. Ticket: {payload.hardware_ticket_id or 'SIMULATED'}"
         )
     except Exception as e:
         print(f"[AUDIT_LOG_ERR] {e}")
@@ -343,48 +371,36 @@ async def hardware_authenticate(payload: HardwareAuthPayload, request: Request):
     
     return {"success": True, "jwt": token, "user": user_copy}
 
-# HARDWARE POLLING BACKUP (Guarantees redirect even when WebSockets are unavailable)
+# HARDWARE POLLING BACKUP (Stage 1 Hardware Challenge Ticket Poller)
 @router.get("/hardware/latest-auth")
 async def get_latest_hardware_auth():
-    # Check in-memory first
-    mem = _latest_hardware_auth.get("latest")
-    if mem:
+    """
+    Polling fallback for Stage 1 Hardware Authentication.
+    Security Notice: Hardware success alone NEVER issues a JWT token!
+    Returns Stage 1 ticket metadata for Stage 2 software login challenge.
+    """
+    db = get_database()
+    hardware_repo = HardwareRepository(db)
+    ticket = await hardware_repo.get_latest_valid_ticket()
+    if ticket:
         return {
-            "authenticated": True,
-            "token": mem["token"],
-            "user": mem["user"],
-            "timestamp": mem["authenticated_at"]
+            "authenticated": False,  # Not logged in! Stage 2 software password required!
+            "stage1_verified": True,
+            "ticket_id": ticket["ticket_id"],
+            "user_email": ticket.get("user_email"),
+            "user_name": ticket.get("user_name"),
+            "user_role": ticket.get("user_role"),
+            "expires_in_seconds": ticket.get("expires_in_seconds", 300)
         }
 
-    # Check MongoDB database for multi-process cloud workers
-    try:
-        db = get_database()
-        doc = await db["hardware_sessions"].find_one({"key": "latest_hardware_auth"})
-        if doc and doc.get("token"):
-            now = datetime.now(timezone.utc)
-            auth_time = doc.get("authenticated_at")
-            if auth_time:
-                if auth_time.tzinfo is None:
-                    auth_time = auth_time.replace(tzinfo=timezone.utc)
-                age = (now - auth_time).total_seconds()
-                if age <= 30.0:  # Fresh within 30 seconds
-                    return {
-                        "authenticated": True,
-                        "token": doc["token"],
-                        "user": doc.get("user", {}),
-                        "timestamp": auth_time.isoformat()
-                    }
-    except Exception as e:
-        print(f"[LATEST_AUTH_POLL_ERR] {e}")
-
-    return {"authenticated": False}
+    return {"authenticated": False, "stage1_verified": False}
 
 @router.post("/hardware/consume-auth")
 async def consume_hardware_auth():
     _latest_hardware_auth.pop("latest", None)
     try:
         db = get_database()
-        await db["hardware_sessions"].delete_one({"key": "latest_hardware_auth"})
+        await db["hardware_sessions"].delete_many({})
     except Exception:
         pass
     return {"status": "consumed"}

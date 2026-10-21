@@ -26,3 +26,22 @@ class HardwareBridgeStatusResponse(BaseModel):
     last_heartbeat: Optional[str] = None
     last_event: Optional[Dict[str, Any]] = None
     error_message: Optional[str] = None
+
+class HardwareTicketResponse(BaseModel):
+    ticket_id: str
+    uid: str
+    user_name: str
+    user_email: str
+    status: str
+    created_at: str
+    expires_at: str
+    expires_in_seconds: int
+
+class HardwareStageStateResponse(BaseModel):
+    state: str  # "WAITING_CONNECTION" | "CONNECTED" | "WAITING_RFID" | "RFID_ACCEPTED" | "WAITING_FINGERPRINT" | "SUCCESS" | "DENIED" | "ERROR"
+    bridge_status: str  # "Connected" | "Disconnected" | "Error"
+    port: str
+    baud_rate: int
+    latest_event: Optional[Dict[str, Any]] = None
+    ticket: Optional[HardwareTicketResponse] = None
+    detail: Optional[str] = None

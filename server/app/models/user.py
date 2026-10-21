@@ -38,6 +38,7 @@ class UserResponse(BaseModel):
 class UserLogin(BaseModel):
     email: str = Field(..., description="Username or Email address")
     password: str
+    hardware_ticket_id: Optional[str] = Field(None, description="Stage 1 Hardware Authentication challenge ticket")
 
 class HardwareAuthPayload(BaseModel):
     deviceId: str

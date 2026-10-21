@@ -445,6 +445,12 @@ const AppRoutes = () => {
           element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <Login />}
         />
 
+        {/* Dedicated Hardware Authentication Portal Route */}
+        <Route
+          path="/hardware-auth"
+          element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <Login />}
+        />
+
         {/* Landing Route alias: always viewable */}
         <Route
           path="/landing"
