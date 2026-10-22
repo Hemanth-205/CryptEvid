@@ -66,7 +66,7 @@ async def ensure_default_users():
                 "name": "Portal Operations Manager",
                 "role": "portal_manager",
                 "password": "password123",
-                "rfid": "D1E2F3A4",
+                "rfid": "105B965C",
                 "fingerprint_id": 15,
                 "is_active": True
             }

@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any, Literal
+from typing import Optional, Dict, Any, Literal, List
 from datetime import datetime
 
 class HardwareSerialEventPayload(BaseModel):
@@ -32,6 +32,7 @@ class HardwareTicketResponse(BaseModel):
     uid: str
     user_name: str
     user_email: str
+    allowed_emails: Optional[List[str]] = None
     status: str
     created_at: str
     expires_at: str

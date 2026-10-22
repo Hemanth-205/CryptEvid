@@ -6,6 +6,7 @@ export interface Stage1Ticket {
   ticket_id: string;
   user_email: string;
   user_name: string;
+  allowed_emails?: string[];
   expires_in_seconds: number;
   timestamp?: number;
 }
@@ -120,6 +121,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               ticket_id: data.ticket_id,
               user_email: data.user_email,
               user_name: data.user_name,
+              allowed_emails: data.allowed_emails,
               expires_in_seconds: data.expires_in_seconds || 300,
               timestamp: Date.now()
             });

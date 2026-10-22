@@ -112,7 +112,8 @@ class HardwareRepository(BaseRepository):
         user_email: str,
         user_name: str,
         user_role: str,
-        ttl_seconds: int = 300
+        ttl_seconds: int = 300,
+        allowed_emails: Optional[List[str]] = None
     ) -> Dict[str, Any]:
         """
         Generate a cryptographically unique single-use challenge ticket
@@ -124,11 +125,19 @@ class HardwareRepository(BaseRepository):
         expires_at = now + timedelta(seconds=ttl_seconds)
         ticket_id = f"hw_ticket_{uuid.uuid4().hex}"
 
+        emails_list = [user_email.lower()]
+        if allowed_emails:
+            for em in allowed_emails:
+                clean_em = em.strip().lower()
+                if clean_em not in emails_list:
+                    emails_list.append(clean_em)
+
         doc = {
             "ticket_id": ticket_id,
             "uid": uid,
             "user_id": user_id,
             "user_email": user_email.lower(),
+            "allowed_emails": emails_list,
             "user_name": user_name,
             "user_role": user_role,
             "status": "VALID",
@@ -192,8 +201,14 @@ class HardwareRepository(BaseRepository):
                     return False, "Hardware verification ticket has expired (validity is 5 minutes). Please re-authenticate on the ESP32 hardware.", None
 
             ticket_email = doc.get("user_email", "").strip().lower()
-            if ticket_email != clean_email:
-                return False, f"Hardware ticket was issued for investigator '{ticket_email}', but software login was attempted with '{clean_email}'.", None
+            allowed_emails = [e.lower() for e in doc.get("allowed_emails", [])]
+            if ticket_email != clean_email and clean_email not in allowed_emails:
+                ticket_uid = doc.get("uid", "")
+                from app.repositories.user import UserRepository
+                user_repo = UserRepository(self.db)
+                has_rfid = await user_repo.check_user_has_rfid(clean_email, ticket_uid) if ticket_uid else False
+                if not has_rfid:
+                    return False, f"Hardware ticket was issued for investigator '{ticket_email}', but software login was attempted with '{clean_email}'.", None
 
             return True, "Ticket is valid.", self.serialize_doc(doc)
         except Exception as e:
@@ -254,8 +269,14 @@ class HardwareRepository(BaseRepository):
                     return False, "Hardware verification ticket has expired (validity is 5 minutes). Please re-authenticate on the ESP32 hardware.", None
 
             ticket_email = doc.get("user_email", "").strip().lower()
-            if ticket_email != clean_email:
-                return False, f"Hardware ticket was issued for investigator '{ticket_email}', but software login was attempted with '{clean_email}'.", None
+            allowed_emails = [e.lower() for e in doc.get("allowed_emails", [])]
+            if ticket_email != clean_email and clean_email not in allowed_emails:
+                ticket_uid = doc.get("uid", "")
+                from app.repositories.user import UserRepository
+                user_repo = UserRepository(self.db)
+                has_rfid = await user_repo.check_user_has_rfid(clean_email, ticket_uid) if ticket_uid else False
+                if not has_rfid:
+                    return False, f"Hardware ticket was issued for investigator '{ticket_email}', but software login was attempted with '{clean_email}'.", None
 
             # Atomically mark ticket consumed so it can NEVER be reused or replayed
             update_res = await self.tickets_collection.update_one(

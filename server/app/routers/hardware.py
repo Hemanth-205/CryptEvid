@@ -98,14 +98,37 @@ async def ingest_hardware_serial_event(
 
     # 2. Normalize and Map RFID UID to an Investigator
     clean_uid = re.sub(r'[\s:-]', '', payload.uid).upper()
+
+    # Extract optional fingerprint ID if present in raw_message or reason
+    extracted_fid = None
+    if payload.raw_message:
+        fid_match = re.search(r'(?:FID|FP|FINGERPRINT)=([0-9]+)', payload.raw_message, re.IGNORECASE)
+        if fid_match:
+            try:
+                extracted_fid = int(fid_match.group(1))
+            except Exception:
+                pass
+    if extracted_fid is None and payload.reason:
+        fid_match = re.search(r'(?:FID|FP|FINGERPRINT)=([0-9]+)', payload.reason, re.IGNORECASE)
+        if fid_match:
+            try:
+                extracted_fid = int(fid_match.group(1))
+            except Exception:
+                pass
+
     try:
-        user = await user_repo.get_by_rfid(payload.uid)
+        user = await user_repo.get_by_rfid(payload.uid, fingerprint_id=extracted_fid)
+        all_rfid_users = await user_repo.get_all_by_rfid(payload.uid)
     except Exception as dbe:
         logger.error(f"Database lookup error during investigator mapping: {dbe}")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Database service unavailable during hardware event processing."
         )
+
+    allowed_emails = [u["email"] for u in all_rfid_users if u.get("email")]
+    if user and user["email"] not in allowed_emails:
+        allowed_emails.append(user["email"])
 
     mapped_investigator = None
     is_identity_verified = False
@@ -189,7 +212,8 @@ async def ingest_hardware_serial_event(
                 user_email=user["email"],
                 user_name=user.get("name", "Investigator"),
                 user_role=user.get("role", "investigator"),
-                ttl_seconds=300 # 5 minutes TTL
+                ttl_seconds=300, # 5 minutes TTL
+                allowed_emails=allowed_emails
             )
 
             # Broadcast Stage 1 success to frontend (advances UI state machine to Stage 2)
@@ -200,6 +224,7 @@ async def ingest_hardware_serial_event(
                 "uid": payload.uid,
                 "user_name": user.get("name", "Investigator"),
                 "user_email": user["email"],
+                "allowed_emails": allowed_emails,
                 "expires_in_seconds": ticket_doc["expires_in_seconds"]
             })
             logger.info(f"Generated single-use Stage 1 challenge ticket {ticket_doc['ticket_id']} for {user['email']}")
@@ -436,6 +461,7 @@ async def get_stage1_status():
             uid=latest_ticket.get("uid", ""),
             user_name=latest_ticket.get("user_name", "Investigator"),
             user_email=latest_ticket.get("user_email", ""),
+            allowed_emails=latest_ticket.get("allowed_emails"),
             status=latest_ticket.get("status", "VALID"),
             created_at=str(created_at_str or ""),
             expires_at=str(expires_at_str or ""),
@@ -492,6 +518,12 @@ async def simulate_stage1_auth(payload: HardwareSimulateRequest):
     if not user:
         raise HTTPException(status_code=404, detail="No registered investigator found for simulation.")
 
+    clean_uid = (payload.uid or "10 5B 96 5C").replace(" ", "").upper()
+    all_rfid_users = await user_repo.get_all_by_rfid(payload.uid or "10 5B 96 5C")
+    allowed_emails = [u["email"] for u in all_rfid_users if u.get("email")]
+    if user and user["email"] not in allowed_emails:
+        allowed_emails.append(user["email"])
+
     # Create ticket
     ticket_doc = await hardware_repo.create_auth_ticket(
         uid=payload.uid or "10 5B 96 5C",
@@ -499,7 +531,8 @@ async def simulate_stage1_auth(payload: HardwareSimulateRequest):
         user_email=user["email"],
         user_name=user.get("name", "Chief Investigator"),
         user_role=user.get("role", "admin"),
-        ttl_seconds=300
+        ttl_seconds=300,
+        allowed_emails=allowed_emails
     )
     
     # Save event
@@ -531,6 +564,7 @@ async def simulate_stage1_auth(payload: HardwareSimulateRequest):
         "uid": payload.uid or "10 5B 96 5C",
         "user_name": user.get("name", "Chief Investigator"),
         "user_email": user["email"],
+        "allowed_emails": allowed_emails,
         "expires_in_seconds": ticket_doc["expires_in_seconds"]
     })
     

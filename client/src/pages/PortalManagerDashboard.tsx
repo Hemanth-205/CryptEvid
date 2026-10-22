@@ -7,18 +7,14 @@ import {
   Search,
   Filter,
   RefreshCw,
-  Plus,
-  Shield,
   Edit2,
   CheckCircle,
   AlertTriangle,
   ChevronLeft,
   ChevronRight,
   ShieldCheck,
-  Lock,
   UserPlus,
   User,
-  Clock,
   Layers
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';

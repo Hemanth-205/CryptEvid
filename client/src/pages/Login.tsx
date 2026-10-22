@@ -110,6 +110,7 @@ export const Login: React.FC = () => {
             ticket_id: res.data.ticket.ticket_id,
             user_email: res.data.ticket.user_email,
             user_name: res.data.ticket.user_name,
+            allowed_emails: res.data.ticket.allowed_emails,
             expires_in_seconds: res.data.ticket.expires_in_seconds || 300,
             timestamp: Date.now()
           });
@@ -295,14 +296,14 @@ export const Login: React.FC = () => {
   };
 
   // Trigger simulated Stage 1 Hardware Authentication
-  const handleSimulateStage1 = async () => {
+  const handleSimulateStage1 = async (targetEmail: string = "admin@forensics.gov", fid: number = 6) => {
     setIsSimulatingStage1(true);
     setError(null);
     try {
       const res = await api.post('/hardware/stage1-simulate', {
         uid: "10 5B 96 5C",
-        email: "admin@forensics.gov",
-        fingerprint_id: 6
+        email: targetEmail,
+        fingerprint_id: fid
       });
 
       if (res.data?.success && res.data?.ticket_id) {
@@ -310,7 +311,8 @@ export const Login: React.FC = () => {
         setStage1Ticket({
           ticket_id: res.data.ticket_id,
           user_email: res.data.user_email,
-          user_name: res.data.user_name || "Chief Investigator",
+          user_name: res.data.user_name || (targetEmail.includes("manager") ? "Portal Manager" : "Chief Investigator"),
+          allowed_emails: ["admin@forensics.gov", "manager@forensics.gov"],
           expires_in_seconds: res.data.expires_in_seconds || 300,
           timestamp: Date.now()
         });
@@ -325,17 +327,22 @@ export const Login: React.FC = () => {
   };
 
   // Handle Stage 2 Software Login Credentials Submission
-  const handleCredentialsSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const cleanId = email.trim();
-    if (!cleanId || !password) return;
+  const handleCredentialsSubmit = async (e?: React.FormEvent, overrideEmail?: string, overridePassword?: string) => {
+    if (e) e.preventDefault();
+    const cleanId = (overrideEmail !== undefined ? overrideEmail : email).trim();
+    const cleanPass = overridePassword !== undefined ? overridePassword : password;
+    if (!cleanId || !cleanPass) return;
     
     setIsSubmitting(true);
     setError(null);
     try {
       // Pass the single-use hardware ticket ID from Stage 1
-      await login(cleanId, password, stage1Ticket?.ticket_id);
-      navigate('/dashboard', { replace: true });
+      const loggedUser = await login(cleanId, cleanPass, stage1Ticket?.ticket_id);
+      if (loggedUser?.role === 'portal_manager') {
+        navigate('/portal-manager', { replace: true });
+      } else {
+        navigate('/dashboard', { replace: true });
+      }
     } catch (err: any) {
       console.error('Login error:', err);
       if (err.response?.data?.detail) {
@@ -535,45 +542,60 @@ export const Login: React.FC = () => {
                 </p>
               </div>
 
-              {/* Interactive Step Progress Items */}
-              <div className="grid grid-cols-2 gap-2 text-[11px]">
-                <div className="p-2 rounded bg-white border border-slate-200 flex items-center gap-2">
-                  <Scan className="w-4 h-4 text-amber-600" />
-                  <div>
-                    <span className="block font-semibold text-slate-800">RFID Scanner</span>
-                    <span className="text-[10px] text-slate-500 font-mono">Card: 10 5B 96 5C</span>
-                  </div>
+              {/* Authorized Shared Hardware Credentials Mapping */}
+              <div className="p-2.5 rounded-lg bg-white border border-slate-200 space-y-2">
+                <div className="flex items-center justify-between text-[11px] pb-1 border-b border-slate-100">
+                  <span className="font-semibold text-slate-700 flex items-center gap-1.5">
+                    <Scan className="w-3.5 h-3.5 text-amber-600" />
+                    Shared Hardware RFID Card:
+                  </span>
+                  <span className="font-mono font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                    10 5B 96 5C
+                  </span>
                 </div>
-
-                <div className="p-2 rounded bg-white border border-slate-200 flex items-center gap-2">
-                  <Fingerprint className="w-4 h-4 text-emerald-600" />
-                  <div>
-                    <span className="block font-semibold text-slate-800">Biometric Sensor</span>
-                    <span className="text-[10px] text-slate-500 font-mono">Fingerprint ID: 6</span>
+                <div className="grid grid-cols-2 gap-2 text-[10px]">
+                  <div className="p-2 rounded bg-slate-50 border border-slate-200">
+                    <span className="block font-bold text-slate-800">Chief Investigator</span>
+                    <span className="text-slate-500 font-mono">admin@forensics.gov</span>
+                    <span className="block text-emerald-600 font-medium mt-0.5">Biometric FID: 6</span>
+                  </div>
+                  <div className="p-2 rounded bg-slate-50 border border-slate-200">
+                    <span className="block font-bold text-slate-800">Portal Manager</span>
+                    <span className="text-slate-500 font-mono">manager@forensics.gov</span>
+                    <span className="block text-emerald-600 font-medium mt-0.5">Biometric FID: 15</span>
                   </div>
                 </div>
               </div>
             </div>
 
             {/* Simulation / Testing Action */}
-            <div className="pt-1">
+            <div className="grid grid-cols-2 gap-2 pt-1">
               <button
                 type="button"
-                onClick={handleSimulateStage1}
+                onClick={() => handleSimulateStage1("admin@forensics.gov", 6)}
                 disabled={isSimulatingStage1}
-                className="ws-btn ws-btn-amber w-full py-2.5 text-xs flex items-center justify-center gap-2 shadow-xs cursor-pointer"
+                className="ws-btn ws-btn-amber py-2 text-[11px] flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
               >
                 {isSimulatingStage1 ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Generating Stage 1 Challenge Ticket...</span>
-                  </>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
                 ) : (
-                  <>
-                    <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                    <span>Simulate Hardware Verification (Demo Mode)</span>
-                  </>
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
                 )}
+                <span>Simulate Admin (FID 6)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleSimulateStage1("manager@forensics.gov", 15)}
+                disabled={isSimulatingStage1}
+                className="ws-btn ws-btn-secondary py-2 text-[11px] flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
+              >
+                {isSimulatingStage1 ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
+                )}
+                <span>Simulate Manager (FID 15)</span>
               </button>
             </div>
           </div>
@@ -591,7 +613,7 @@ export const Login: React.FC = () => {
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                   <span className="text-xs font-bold font-sans">
-                    Stage 1 Verified: {stage1Ticket.user_name}
+                    Stage 1 Verified: RFID Card 10 5B 96 5C
                   </span>
                 </div>
                 <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-emerald-100/80 border border-emerald-300 font-mono text-[11px] font-bold text-emerald-800">
@@ -612,6 +634,56 @@ export const Login: React.FC = () => {
               </div>
             </div>
 
+            {/* Quick Account Switcher for RFID 10 5B 96 5C */}
+            <div className="space-y-1.5">
+              <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider">
+                Select Authorized Account for Card 10 5B 96 5C:
+              </span>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEmail("admin@forensics.gov");
+                    setPassword("password123");
+                  }}
+                  className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                    email.toLowerCase() === "admin@forensics.gov"
+                      ? "bg-blue-50 border-blue-400 text-blue-900 ring-2 ring-blue-500/20 shadow-xs"
+                      : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs font-bold">Admin</span>
+                    <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-amber-100 text-amber-800">
+                      Command Center
+                    </span>
+                  </div>
+                  <div className="text-[10px] font-mono text-slate-500 truncate">admin@forensics.gov</div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEmail("manager@forensics.gov");
+                    setPassword("password123");
+                  }}
+                  className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                    email.toLowerCase() === "manager@forensics.gov"
+                      ? "bg-purple-50 border-purple-400 text-purple-900 ring-2 ring-purple-500/20 shadow-xs"
+                      : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs font-bold">Portal Manager</span>
+                    <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-purple-100 text-purple-800">
+                      User Dashboard
+                    </span>
+                  </div>
+                  <div className="text-[10px] font-mono text-slate-500 truncate">manager@forensics.gov</div>
+                </button>
+              </div>
+            </div>
+
             {/* Software Passphrase Form */}
             <form onSubmit={handleCredentialsSubmit} className="space-y-4">
               <div>
@@ -622,7 +694,7 @@ export const Login: React.FC = () => {
                   type="text"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="admin@forensics.gov"
+                  placeholder="admin@forensics.gov or manager@forensics.gov"
                   className="ws-input w-full font-mono text-xs"
                   autoCapitalize="none"
                   autoCorrect="off"

@@ -47,11 +47,39 @@ class UserRepository(BaseRepository):
 
         return None
 
-    async def get_by_rfid(self, rfid: str) -> Optional[Dict[str, Any]]:
+    async def get_by_rfid(self, rfid: str, fingerprint_id: Optional[Any] = None) -> Optional[Dict[str, Any]]:
         clean = rfid.replace(" ", "").replace(":", "").replace("-", "").upper()
         # Flexible pattern matching with or without spaces/delimiters
         pattern = "^" + "".join([f"{clean[i:i+2]}[ :\\-]?" for i in range(0, len(clean), 2)]) + "$" if len(clean) >= 4 else clean
-        doc = await self.collection.find_one({
+        rfid_clause = {
+            "$or": [
+                {"rfid": rfid},
+                {"rfid": clean},
+                {"rfid": {"$regex": f"^{clean}$", "$options": "i"}},
+                {"rfid": {"$regex": pattern, "$options": "i"}}
+            ]
+        }
+        if fingerprint_id is not None:
+            try:
+                fid = int(fingerprint_id)
+            except (ValueError, TypeError):
+                fid = fingerprint_id
+            doc = await self.collection.find_one({
+                "$and": [
+                    rfid_clause,
+                    {"$or": [{"fingerprint_id": fid}, {"fingerprint_id": str(fid)}]}
+                ]
+            })
+            if doc:
+                return self.serialize_doc(doc)
+
+        doc = await self.collection.find_one(rfid_clause)
+        return self.serialize_doc(doc)
+
+    async def get_all_by_rfid(self, rfid: str) -> List[Dict[str, Any]]:
+        clean = rfid.replace(" ", "").replace(":", "").replace("-", "").upper()
+        pattern = "^" + "".join([f"{clean[i:i+2]}[ :\\-]?" for i in range(0, len(clean), 2)]) + "$" if len(clean) >= 4 else clean
+        cursor = self.collection.find({
             "$or": [
                 {"rfid": rfid},
                 {"rfid": clean},
@@ -59,7 +87,22 @@ class UserRepository(BaseRepository):
                 {"rfid": {"$regex": pattern, "$options": "i"}}
             ]
         })
-        return self.serialize_doc(doc)
+        docs = await cursor.to_list(length=50)
+        return self.serialize_docs(docs)
+
+    async def check_user_has_rfid(self, email: str, rfid: str) -> bool:
+        clean_rfid = rfid.replace(" ", "").replace(":", "").replace("-", "").upper()
+        pattern = "^" + "".join([f"{clean_rfid[i:i+2]}[ :\\-]?" for i in range(0, len(clean_rfid), 2)]) + "$" if len(clean_rfid) >= 4 else clean_rfid
+        doc = await self.collection.find_one({
+            "email": email.strip().lower(),
+            "$or": [
+                {"rfid": rfid},
+                {"rfid": clean_rfid},
+                {"rfid": {"$regex": f"^{clean_rfid}$", "$options": "i"}},
+                {"rfid": {"$regex": pattern, "$options": "i"}}
+            ]
+        })
+        return bool(doc)
 
     async def get_by_fingerprint(self, fingerprint_id: Any) -> Optional[Dict[str, Any]]:
         try:
