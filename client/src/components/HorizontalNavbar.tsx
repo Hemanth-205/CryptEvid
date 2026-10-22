@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -45,15 +45,32 @@ export const HorizontalNavbar: React.FC = () => {
     setMobileMenuOpen(false);
   }, [location.pathname]);
 
-  const navItems = [
-    { name: 'Dashboard', path: '/dashboard' },
-    { name: 'Cases', path: '/cases' },
-    { name: 'Graph', path: '/graph' },
-    { name: 'Threat Intel', path: '/ai-analysis' },
-    { name: 'Alerts', path: '/security-alerts' },
-    { name: 'Reports', path: '/reports' },
-    { name: 'Settings', path: '/settings' },
-  ];
+  const isPortalManager = user?.role === 'portal_manager';
+  const isAdmin = user?.role === 'admin';
+
+  const navItems = useMemo(() => {
+    if (isPortalManager) {
+      return [
+        { name: 'Portal Dashboard', path: '/dashboard' },
+        { name: 'Settings', path: '/settings' },
+      ];
+    }
+    const items = [
+      { name: 'Dashboard', path: '/dashboard' },
+      { name: 'Cases', path: '/cases' },
+    ];
+    if (isAdmin) {
+      items.push({ name: 'Portal Users', path: '/portal-manager' });
+    }
+    items.push(
+      { name: 'Graph', path: '/graph' },
+      { name: 'Threat Intel', path: '/ai-analysis' },
+      { name: 'Alerts', path: '/security-alerts' },
+      { name: 'Reports', path: '/reports' },
+      { name: 'Settings', path: '/settings' }
+    );
+    return items;
+  }, [isPortalManager, isAdmin]);
 
   return (
     <header className="sticky top-0 z-50 select-none border-b transition-colors duration-200 bg-white border-slate-200 text-slate-900 shadow-xs">
@@ -121,8 +138,14 @@ export const HorizontalNavbar: React.FC = () => {
                 <span className="text-xs font-bold leading-tight text-slate-900">
                   {user?.name || 'Lead Investigator'}
                 </span>
-                <span className="text-[10px] font-mono uppercase text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 mt-0.5 font-semibold">
-                  {user?.role || 'Examiner'}
+                <span className={`text-[10px] font-mono uppercase px-1.5 py-0.5 rounded border mt-0.5 font-semibold ${
+                  user?.role === 'portal_manager'
+                    ? 'text-blue-700 bg-blue-50 border-blue-200'
+                    : user?.role === 'admin'
+                    ? 'text-red-700 bg-red-50 border-red-200'
+                    : 'text-amber-700 bg-amber-50 border-amber-200'
+                }`}>
+                  {user?.role === 'portal_manager' ? 'PORTAL MANAGER' : (user?.role || 'Examiner')}
                 </span>
               </div>
               <button

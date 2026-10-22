@@ -1,4 +1,4 @@
-export type UserRole = 'admin' | 'investigator' | 'readonly';
+export type UserRole = 'admin' | 'investigator' | 'readonly' | 'portal_manager';
 
 export interface User {
   _id: string;
@@ -107,7 +107,13 @@ export type EvidenceType =
   | 'text'
   | 'other';
 
-export type IntegrityStatus = 'PENDING' | 'VERIFIED' | 'TAMPERED';
+export type IntegrityStatus =
+  | 'PENDING'
+  | 'VERIFIED'
+  | 'INTACT'
+  | 'TAMPERED'
+  | 'INTEGRITY_MISMATCH'
+  | 'UNDER_INVESTIGATION';
 
 export type CustodyAction =
   | 'EVIDENCE_COLLECTED'
@@ -117,7 +123,16 @@ export type CustodyAction =
   | 'EVIDENCE_VERIFIED'
   | 'EVIDENCE_INTEGRITY_FAILURE'
   | 'EVIDENCE_METADATA_UPDATED'
-  | 'EVIDENCE_ANALYZED';
+  | 'EVIDENCE_ANALYZED'
+  | 'ORIGINAL_BACKUP_CREATED'
+  | 'BACKUP_INTEGRITY_VERIFIED'
+  | 'BACKUP_INTEGRITY_FAILURE'
+  | 'TAMPER_DETECTED_VS_ORIGINAL'
+  | 'BACKUP_DOWNLOADED'
+  | 'BACKUP_ACCESSED'
+  | 'AUTHORIZED_MODIFICATION'
+  | 'TAMPER_CONFIRMED'
+  | 'INTEGRITY_DISCREPANCY_FLAGGED';
 
 export interface EvidenceStats {
   total_evidence: number;
@@ -152,6 +167,8 @@ export interface EvidenceVerifyResult {
   integrity: IntegrityStatus;
   verified_at: string;
   message: string;
+  has_original_backup?: boolean;
+  original_sha256_hash?: string;
 }
 
 export interface Evidence {
@@ -171,6 +188,27 @@ export interface Evidence {
   collection_timestamp: string;
   created_at: string;
   sha256_hash: string;
+  original_sha256_hash?: string;
+  version?: number;
+  version_history?: Array<{
+    version: number;
+    sha256_hash: string;
+    file_size: number;
+    modified_at: string;
+    modified_by_name: string;
+    reason: string;
+    notes?: string;
+  }>;
+  has_original_backup?: boolean;
+  original_backup_created_at?: string;
+  tamper_details?: {
+    confirmed_at: string;
+    confirmed_by?: string;
+    confirmed_by_name: string;
+    reason: string;
+    attacker_attribution: string;
+    investigation_notes?: string;
+  };
   integrity_status: IntegrityStatus;
   last_verified_at?: string;
   last_calculated_hash?: string;
@@ -192,6 +230,50 @@ export interface Evidence {
   latitude?: number;
   longitude?: number;
   investigator_name?: string;
+}
+
+export interface PortalManagerOverview {
+  total_users: number;
+  active_users: number;
+  inactive_users: number;
+  total_cases: number;
+  total_assigned_officers: number;
+  assignment_overview: {
+    assigned_cases: number;
+    unassigned_cases: number;
+    assignment_rate: number;
+    open_cases: number;
+    in_progress_cases: number;
+    closed_cases: number;
+    on_hold_cases: number;
+  };
+}
+
+export interface PortalUser {
+  _id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  is_active: boolean;
+  created_at: string;
+  assigned_cases_count?: number;
+}
+
+export interface PortalCaseOversight {
+  _id: string;
+  case_id: string;
+  case_number: string;
+  title: string;
+  description: string;
+  case_type: CaseType;
+  priority: CasePriority;
+  status: CaseStatus;
+  created_at: string;
+  updated_at: string;
+  assigned_officer_id?: string | null;
+  assigned_officer_name: string;
+  assigned_officer_email?: string | null;
+  assignment_status: 'ASSIGNED' | 'UNASSIGNED';
 }
 
 export interface EvidenceHashAudit {

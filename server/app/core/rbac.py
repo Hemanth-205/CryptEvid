@@ -17,6 +17,29 @@ def is_court_auditor(user: Dict[str, Any]) -> bool:
         role = role.value
     return str(role).lower() in ("readonly", "court_auditor", "auditor")
 
+def is_portal_manager(user: Dict[str, Any]) -> bool:
+    """Check if the user is a Portal Manager."""
+    role = user.get("role")
+    if isinstance(role, UserRole):
+        role = role.value
+    return str(role).lower() in ("portal_manager", "portalmanager")
+
+def can_manage_users(user: Dict[str, Any]) -> bool:
+    """Check if user is authorized to manage users (Admin or Portal Manager)."""
+    return is_admin(user) or is_portal_manager(user)
+
+def require_not_portal_manager_for_evidence(user: Dict[str, Any]) -> None:
+    """
+    Enforce strict evidence confidentiality for Portal Manager.
+    Portal Manager MUST NOT be able to view, preview, inspect, or download evidence,
+    evidence vault paths, custody bytes, or forensic reports.
+    """
+    if is_portal_manager(user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="EVIDENCE_CONFIDENTIALITY_VIOLATION: Portal Manager is strictly restricted from accessing digital evidence files, previews, download endpoints, backups, or forensic examination reports."
+        )
+
 def can_view_all_cases(user: Dict[str, Any]) -> bool:
     """
     Chief Investigator (Admin) and Court Auditor (ReadOnly) can view all cases across the system.

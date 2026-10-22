@@ -244,6 +244,25 @@ export const evidenceApi = {
     return res.data;
   },
 
+  downloadBackupBlob: async (evidenceId: string) => {
+    const res = await api.get(`/evidence/${evidenceId}/backup/download`, {
+      responseType: 'blob'
+    });
+    return res.data;
+  },
+
+  modifyEvidence: async (evidenceId: string, formData: FormData) => {
+    const res = await api.post(`/evidence/${evidenceId}/modify`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+    return res.data;
+  },
+
+  confirmTamper: async (evidenceId: string, data: { reason: string; attacker_attribution?: string; investigation_notes?: string }) => {
+    const res = await api.post(`/evidence/${evidenceId}/confirm-tamper`, data);
+    return res.data;
+  },
+
   getDownloadUrl: (evidenceId: string) => {
     const token = localStorage.getItem('forensic_token');
     return `${getApiBaseUrl()}/evidence/${evidenceId}/download${token ? `?token=${token}` : ''}`;
@@ -574,4 +593,68 @@ export const hardwareApi = {
     return res.data;
   }
 };
+
+export const portalManagerApi = {
+  getOverview: async () => {
+    const res = await api.get('/portal-manager/overview');
+    return res.data;
+  },
+
+  getUsers: async (params?: {
+    search?: string;
+    role?: string;
+    is_active?: boolean;
+    skip?: number;
+    limit?: number;
+  }) => {
+    const res = await api.get('/portal-manager/users', { params });
+    return res.data;
+  },
+
+  createUser: async (userData: {
+    name: string;
+    email: string;
+    role: string;
+    password: string;
+    is_active?: boolean;
+  }) => {
+    const res = await api.post('/portal-manager/users', userData);
+    return res.data;
+  },
+
+  updateUser: async (userId: string, updateData: {
+    name?: string;
+    email?: string;
+    role?: string;
+    is_active?: boolean;
+  }) => {
+    const res = await api.patch(`/portal-manager/users/${userId}`, updateData);
+    return res.data;
+  },
+
+  toggleUserStatus: async (userId: string, is_active: boolean) => {
+    const res = await api.patch(`/portal-manager/users/${userId}/status`, { is_active });
+    return res.data;
+  },
+
+  getCases: async (params?: {
+    search?: string;
+    status?: string;
+    priority?: string;
+    assignment_status?: string;
+    skip?: number;
+    limit?: number;
+  }) => {
+    const res = await api.get('/portal-manager/cases', { params });
+    return res.data;
+  },
+
+  assignCase: async (caseId: string, investigatorId: string | null) => {
+    const res = await api.post(`/portal-manager/cases/${caseId}/assign`, {
+      investigator_id: investigatorId
+    });
+    return res.data;
+  }
+};
+
 

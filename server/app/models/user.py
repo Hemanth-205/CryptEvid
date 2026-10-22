@@ -7,6 +7,7 @@ class UserRole(str, Enum):
     ADMIN = "admin"
     INVESTIGATOR = "investigator"
     READONLY = "readonly"
+    PORTAL_MANAGER = "portal_manager"
 
 class UserBase(BaseModel):
     email: EmailStr
@@ -18,6 +19,26 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     password: str
+
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
+    email: Optional[EmailStr] = None
+    role: Optional[UserRole] = None
+    is_active: Optional[bool] = None
+
+class SafeUserResponse(BaseModel):
+    id: str = Field(..., alias="_id")
+    email: EmailStr
+    name: str
+    role: UserRole
+    is_active: bool
+    created_at: datetime
+
+    class Config:
+        populate_by_name = True
+        json_encoders = {
+            datetime: lambda v: v.isoformat()
+        }
 
 class UserResponse(BaseModel):
     id: str = Field(..., alias="_id")

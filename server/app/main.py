@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.database import connect_to_mongo, close_mongo_connection, get_database
 from app.core.ws import ws_manager
-from app.routers import auth, settings as settings_router, audit, cases, evidence, events, analytics, reports, security, diary, hardware
+from app.routers import auth, settings as settings_router, audit, cases, evidence, events, analytics, reports, security, diary, hardware, portal_manager
 from app.routers import backup as backup_router
 from fastapi import Request, HTTPException
 from fastapi.responses import JSONResponse
@@ -161,6 +161,8 @@ app.include_router(backup_router.router, prefix=settings.API_V1_STR)
 app.include_router(diary.router, prefix=settings.API_V1_STR)
 app.include_router(hardware.router, prefix=settings.API_V1_STR)
 app.include_router(hardware.router, prefix="")
+app.include_router(portal_manager.router, prefix=settings.API_V1_STR)
+app.include_router(portal_manager.router, prefix="")
 
 @app.exception_handler(HTTPException)
 async def custom_http_exception_handler(request: Request, exc: HTTPException):

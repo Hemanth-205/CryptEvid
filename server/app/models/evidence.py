@@ -7,6 +7,8 @@ class IntegrityStatus(str, Enum):
     PENDING = "PENDING"
     VERIFIED = "VERIFIED"
     TAMPERED = "TAMPERED"
+    INTEGRITY_MISMATCH = "INTEGRITY_MISMATCH"
+    UNDER_INVESTIGATION = "UNDER_INVESTIGATION"
 
 class CustodyAction(str, Enum):
     EVIDENCE_COLLECTED = "EVIDENCE_COLLECTED"
@@ -24,6 +26,11 @@ class CustodyAction(str, Enum):
     TAMPER_DETECTED_VS_ORIGINAL = "TAMPER_DETECTED_VS_ORIGINAL"
     BACKUP_DOWNLOADED = "BACKUP_DOWNLOADED"
     BACKUP_ACCESSED = "BACKUP_ACCESSED"
+    # Versioning & Intelligence actions
+    AUTHORIZED_MODIFICATION = "AUTHORIZED_MODIFICATION"
+    TAMPER_CONFIRMED = "TAMPER_CONFIRMED"
+    INTEGRITY_DISCREPANCY_FLAGGED = "INTEGRITY_DISCREPANCY_FLAGGED"
+    VERSION_PRESERVED = "VERSION_PRESERVED"
 
 class EvidenceResponse(BaseModel):
     id: str = Field(..., alias="_id")
@@ -41,6 +48,11 @@ class EvidenceResponse(BaseModel):
     collection_timestamp: datetime
     created_at: datetime
     sha256_hash: str
+    original_sha256_hash: Optional[str] = None
+    version: Optional[int] = 1
+    version_history: Optional[List[Dict[str, Any]]] = Field(default_factory=list)
+    tamper_details: Optional[Dict[str, Any]] = None
+    has_original_backup: Optional[bool] = False
     integrity_status: IntegrityStatus
     last_verified_at: Optional[datetime] = None
     last_calculated_hash: Optional[str] = None
@@ -56,6 +68,17 @@ class EvidenceResponse(BaseModel):
             datetime: lambda v: v.isoformat()
         }
 
+class AuthorizedModifyRequest(BaseModel):
+    reason: str
+    notes: Optional[str] = ""
+
+class ConfirmTamperRequest(BaseModel):
+    reason: Optional[str] = "Forensic inspection confirmed unauthorized byte mutation"
+    attributed_actor: Optional[str] = None
+    attacker_attribution: Optional[str] = None
+    investigation_notes: Optional[str] = ""
+    tamper_method: Optional[str] = None
+
 class EvidenceVerifyResponse(BaseModel):
     evidence_id: str
     original_filename: str
@@ -64,6 +87,8 @@ class EvidenceVerifyResponse(BaseModel):
     integrity: IntegrityStatus
     verified_at: datetime
     message: str
+    has_original_backup: Optional[bool] = False
+    original_sha256_hash: Optional[str] = None
 
 class EvidenceStats(BaseModel):
     total_evidence: int

@@ -32,6 +32,22 @@ class EvidenceRepository(BaseRepository):
                     doc["case_title"] = case_doc.get("title")
             except Exception:
                 pass
+
+        doc.setdefault("original_sha256_hash", doc.get("sha256_hash"))
+        doc.setdefault("version", 1)
+        doc.setdefault("version_history", [])
+
+        # Check for preserved original backup
+        try:
+            ev_id = str(doc.get("_id", ""))
+            backup_doc = await self.db["evidence_backups"].find_one({"evidence_id": ev_id})
+            doc["has_original_backup"] = bool(backup_doc)
+            if backup_doc:
+                doc["original_sha256_hash"] = backup_doc.get("original_sha256") or doc.get("original_sha256_hash")
+                doc["original_backup_created_at"] = backup_doc.get("created_at")
+        except Exception:
+            doc["has_original_backup"] = False
+
         return doc
 
     async def get_by_id(self, evidence_id: str) -> Optional[Dict[str, Any]]:
@@ -116,6 +132,71 @@ class EvidenceRepository(BaseRepository):
                         "integrity_status": integrity_status,
                         "last_calculated_hash": calculated_hash,
                         "last_verified_at": verified_at
+                    }
+                },
+                return_document=True
+            )
+            if not result:
+                return None
+            s = self.serialize_doc(result)
+            return await self._hydrate_case_details(s)
+        except Exception:
+            return None
+
+    async def record_authorized_modification(
+        self,
+        evidence_id: str,
+        new_hash: str,
+        new_file_size: int,
+        version_entry: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """Record an authorized modification as a new version without marking as tampered."""
+        try:
+            doc = await self.collection.find_one({"_id": ObjectId(evidence_id)})
+            if not doc:
+                return None
+            current_ver = doc.get("version", 1)
+            new_ver = current_ver + 1
+            now = datetime.now(timezone.utc)
+
+            result = await self.collection.find_one_and_update(
+                {"_id": ObjectId(evidence_id)},
+                {
+                    "$set": {
+                        "sha256_hash": new_hash,
+                        "last_calculated_hash": new_hash,
+                        "file_size": new_file_size,
+                        "version": new_ver,
+                        "integrity_status": "VERIFIED",
+                        "last_verified_at": now
+                    },
+                    "$push": {
+                        "version_history": version_entry
+                    }
+                },
+                return_document=True
+            )
+            if not result:
+                return None
+            s = self.serialize_doc(result)
+            return await self._hydrate_case_details(s)
+        except Exception:
+            return None
+
+    async def confirm_tampering(
+        self,
+        evidence_id: str,
+        tamper_details: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """Confirm evidence tampering following forensic inquiry."""
+        try:
+            result = await self.collection.find_one_and_update(
+                {"_id": ObjectId(evidence_id)},
+                {
+                    "$set": {
+                        "integrity_status": "TAMPERED",
+                        "tamper_details": tamper_details,
+                        "last_verified_at": datetime.now(timezone.utc)
                     }
                 },
                 return_document=True

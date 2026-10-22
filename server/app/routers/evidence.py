@@ -9,7 +9,14 @@ from bson import ObjectId
 from app.core.config import settings
 from app.core.database import get_database
 from app.routers.auth import get_current_user
-from app.core.rbac import is_admin, require_case_access, get_accessible_case_ids, can_view_all_cases
+from app.core.rbac import (
+    is_admin,
+    require_case_access,
+    get_accessible_case_ids,
+    can_view_all_cases,
+    require_not_portal_manager_for_evidence,
+    is_portal_manager
+)
 from app.models.user import UserRole
 from app.models.evidence import (
     IntegrityStatus,
@@ -17,12 +24,15 @@ from app.models.evidence import (
     EvidenceResponse,
     EvidenceVerifyResponse,
     EvidenceStats,
-    CustodyEventResponse
+    CustodyEventResponse,
+    AuthorizedModifyRequest,
+    ConfirmTamperRequest
 )
 from app.repositories.case import CaseRepository
 from app.repositories.evidence import EvidenceRepository
 from app.repositories.evidence_metadata import EvidenceMetadataRepository
 from app.repositories.audit import AuditRepository
+from app.repositories.backup import BackupRepository
 from app.services.hash_service import HashService
 from app.services.custody_service import ChainOfCustodyService
 from app.services.metadata_service import MetadataExtractionService
@@ -71,6 +81,8 @@ async def upload_case_evidence(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="UNAUTHORIZED: Read-only accounts cannot upload evidence"
         )
+
+    require_not_portal_manager_for_evidence(current_user)
 
     db = get_database()
     case_repo = CaseRepository(db)
@@ -162,6 +174,10 @@ async def upload_case_evidence(
         "collector_name": current_user.get("name", "Investigator"),
         "collection_timestamp": datetime.now(timezone.utc),
         "sha256_hash": sha256_hash,
+        "original_sha256_hash": sha256_hash,
+        "version": 1,
+        "version_history": [],
+        "has_original_backup": True,
         "integrity_status": IntegrityStatus.VERIFIED.value,
         "last_verified_at": datetime.now(timezone.utc),
         "last_calculated_hash": sha256_hash,
@@ -211,6 +227,8 @@ async def upload_case_evidence(
 @router.get("/cases/{case_id}/evidence")
 async def list_case_evidence(case_id: str, current_user: Dict[str, Any] = Depends(get_current_user)):
     """List all evidence records assigned to a case container."""
+    require_not_portal_manager_for_evidence(current_user)
+
     db = get_database()
     case_repo = CaseRepository(db)
     evidence_repo = EvidenceRepository(db)
@@ -231,6 +249,8 @@ async def list_case_evidence(case_id: str, current_user: Dict[str, Any] = Depend
 @router.get("/evidence/stats", response_model=EvidenceStats)
 async def get_evidence_stats(current_user: Dict[str, Any] = Depends(get_current_user)):
     """Retrieve real-time global evidence integrity metrics for dashboard."""
+    require_not_portal_manager_for_evidence(current_user)
+
     db = get_database()
     evidence_repo = EvidenceRepository(db)
     allowed_case_ids = None
@@ -248,6 +268,8 @@ async def list_all_evidence(
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
     """List, search, and filter evidence items across the entire repository."""
+    require_not_portal_manager_for_evidence(current_user)
+
     db = get_database()
     evidence_repo = EvidenceRepository(db)
 
@@ -277,6 +299,8 @@ async def list_all_evidence(
 @router.get("/evidence/{evidence_id}")
 async def get_evidence(evidence_id: str, request: Request, current_user: Dict[str, Any] = Depends(get_current_user)):
     """Retrieve detailed evidence information and record view custody event."""
+    require_not_portal_manager_for_evidence(current_user)
+
     db = get_database()
     evidence_repo = EvidenceRepository(db)
 
@@ -309,6 +333,8 @@ async def get_evidence(evidence_id: str, request: Request, current_user: Dict[st
 @router.get("/evidence/{evidence_id}/download")
 async def download_evidence(evidence_id: str, request: Request, current_user: Dict[str, Any] = Depends(get_current_user)):
     """Securely download forensic evidence artifact and log chain-of-custody event."""
+    require_not_portal_manager_for_evidence(current_user)
+
     db = get_database()
     evidence_repo = EvidenceRepository(db)
 
@@ -355,10 +381,14 @@ async def verify_evidence_integrity(
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
     """
-    Recalculate evidence SHA-256 hash using streaming and compare against the baseline hash.
-    If matching: VERIFIED.
-    If mismatch: TAMPERED (triggers high-severity alert and preserves original hash).
+    Recalculate evidence SHA-256 hash using streaming and compare against the registered baseline hash.
+    Rules:
+    - If match: VERIFIED.
+    - If mismatch & already confirmed TAMPERED: remains TAMPERED.
+    - If mismatch & unconfirmed/unattributed: classified as INTEGRITY_MISMATCH pending forensic inquiry.
     """
+    require_not_portal_manager_for_evidence(current_user)
+
     if current_user.get("role") == UserRole.READONLY:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -367,6 +397,7 @@ async def verify_evidence_integrity(
 
     db = get_database()
     evidence_repo = EvidenceRepository(db)
+    backup_repo = BackupRepository(db)
 
     evidence = await evidence_repo.get_by_id(evidence_id)
     if not evidence:
@@ -394,16 +425,29 @@ async def verify_evidence_integrity(
     now = datetime.now(timezone.utc)
     client_ip = request.client.host if request.client else "127.0.0.1"
 
+    # Check for verified original backup
+    backup_doc = await backup_repo.get_by_evidence_id(evidence_id)
+    has_backup = bool(backup_doc and backup_doc.get("storage_path") and os.path.exists(backup_doc["storage_path"]))
+    original_baseline_hash = (backup_doc.get("original_sha256") if backup_doc else None) or evidence.get("original_sha256_hash") or expected_hash
+
     if is_match:
         integrity_status = IntegrityStatus.VERIFIED
-        message = "Cryptographic integrity verified. Evidence matches original baseline hash."
+        message = "Cryptographic integrity verified. Evidence matches registered baseline hash."
         custody_action = CustodyAction.EVIDENCE_VERIFIED.value
         details_msg = f"Integrity verification PASSED. Calculated SHA-256: {calculated_hash}"
     else:
-        integrity_status = IntegrityStatus.TAMPERED
-        message = f"CRITICAL SECURITY ALERT: Evidence has been TAMPERED with! Calculated hash ({calculated_hash}) does NOT match original baseline ({expected_hash})."
-        custody_action = CustodyAction.EVIDENCE_INTEGRITY_FAILURE.value
-        details_msg = f"TAMPER ALERT! Expected baseline: {expected_hash}, Recalculated hash: {calculated_hash}"
+        # Check if already confirmed tampered
+        if str(evidence.get("integrity_status", "")).upper() == IntegrityStatus.TAMPERED.value:
+            integrity_status = IntegrityStatus.TAMPERED
+            message = f"CRITICAL SECURITY ALERT: Evidence confirmed TAMPERED! Calculated hash ({calculated_hash}) differs from registered baseline ({expected_hash})."
+            custody_action = CustodyAction.EVIDENCE_INTEGRITY_FAILURE.value
+            details_msg = f"TAMPER ALERT! Recalculated hash: {calculated_hash} on confirmed tampered exhibit."
+        else:
+            # Uncertain or unattributed change -> classify as INTEGRITY_MISMATCH per Rule C
+            integrity_status = IntegrityStatus.INTEGRITY_MISMATCH
+            message = f"INTEGRITY MISMATCH DETECTED: Physical bytes differ from reference hash (Expected: {expected_hash[:16]}..., Calculated: {calculated_hash[:16]}...). Flagged as INTEGRITY_MISMATCH pending authorized forensic review."
+            custody_action = CustodyAction.INTEGRITY_DISCREPANCY_FLAGGED.value
+            details_msg = f"Integrity mismatch detected. Expected baseline: {expected_hash}, Recalculated: {calculated_hash}. Discrepancy flagged for investigation (unattributed actor)."
 
     # Update evidence integrity in database without overwriting original baseline hash
     await evidence_repo.update_integrity(
@@ -425,27 +469,6 @@ async def verify_evidence_integrity(
         ip_address=client_ip
     )
 
-    # Backup-aware tamper detection: compare against preserved original
-    backup_compared = False
-    original_sha256_from_backup = None
-    backup_id_result = None
-    if not is_match:
-        try:
-            _, original_sha256_from_backup, backup_id_result = \
-                await EvidenceBackupService.verify_evidence_against_original(
-                    db=db,
-                    evidence_id=evidence_id,
-                    case_id=evidence["case_id"],
-                    current_sha256=calculated_hash,
-                    actor_id=str(current_user["_id"]),
-                    actor_name=current_user.get("name", "Investigator"),
-                    ip_address=client_ip,
-                    device_id=evidence.get("source_device", "WEB_APP")
-                )
-            backup_compared = True
-        except Exception as e:
-            print(f"[BACKUP_TAMPER_CHECK_ERR] {e}")
-
     return EvidenceVerifyResponse(
         evidence_id=evidence_id,
         original_filename=evidence["original_filename"],
@@ -453,8 +476,194 @@ async def verify_evidence_integrity(
         calculated_hash=calculated_hash,
         integrity=integrity_status,
         verified_at=now,
-        message=message
+        message=message,
+        has_original_backup=has_backup,
+        original_sha256_hash=original_baseline_hash
     )
+
+# ==============================================================================
+# AUTHORIZED MODIFICATION & TAMPER INTELLIGENCE WORKFLOWS
+# ==============================================================================
+
+@router.post("/evidence/{evidence_id}/modify")
+async def modify_evidence_authorized(
+    evidence_id: str,
+    request: Request,
+    file: UploadFile = File(...),
+    reason: str = Form(...),
+    notes: str = Form(""),
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """
+    Record an authorized evidence modification as a new version.
+    Rule B: Authorized modifications do NOT trigger tampering alerts.
+    The previous version is preserved in version history with actor attribution,
+    operation reason, timestamp, previous hash, and new hash.
+    """
+    require_not_portal_manager_for_evidence(current_user)
+
+    if current_user.get("role") == UserRole.READONLY:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="UNAUTHORIZED: Read-only accounts cannot modify evidence"
+        )
+
+    db = get_database()
+    evidence_repo = EvidenceRepository(db)
+    audit_repo = AuditRepository(db)
+
+    evidence = await evidence_repo.get_by_id(evidence_id)
+    if not evidence:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="EVIDENCE_NOT_FOUND")
+
+    if not is_admin(current_user):
+        case_repo = CaseRepository(db)
+        case = await case_repo.get_by_id(evidence["case_id"])
+        if not case:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Associated case not found")
+        require_case_access(current_user, case, for_write=True)
+
+    storage_path = evidence.get("storage_path")
+    if not storage_path:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Storage path missing")
+
+    verify_storage_path(storage_path)
+
+    # 1. Stream new file and calculate new SHA-256
+    hasher = hashlib.sha256()
+    new_total_bytes = 0
+    with open(storage_path, "wb") as f:
+        while True:
+            chunk = await file.read(64 * 1024)
+            if not chunk:
+                break
+            hasher.update(chunk)
+            f.write(chunk)
+            new_total_bytes += len(chunk)
+
+    new_hash = hasher.hexdigest().lower()
+    now = datetime.now(timezone.utc)
+    client_ip = request.client.host if request.client else "127.0.0.1"
+
+    # 2. Record previous version in version history
+    version_entry = {
+        "version": evidence.get("version", 1),
+        "sha256_hash": evidence.get("sha256_hash"),
+        "file_size": evidence.get("file_size"),
+        "modified_at": now,
+        "modified_by": str(current_user["_id"]),
+        "modified_by_name": current_user.get("name", "Investigator"),
+        "reason": reason.strip(),
+        "notes": notes.strip()
+    }
+
+    updated_evidence = await evidence_repo.record_authorized_modification(
+        evidence_id=evidence_id,
+        new_hash=new_hash,
+        new_file_size=new_total_bytes,
+        version_entry=version_entry
+    )
+
+    # 3. Log authorized custody event
+    await ChainOfCustodyService.record_event(
+        db=db,
+        evidence_id=evidence_id,
+        case_id=evidence["case_id"],
+        action=CustodyAction.AUTHORIZED_MODIFICATION.value,
+        actor_id=str(current_user["_id"]),
+        actor_name=current_user.get("name", "Investigator"),
+        details=f"Authorized evidence modification recorded (v{version_entry['version']} -> v{updated_evidence.get('version', 2)}). Reason: '{reason.strip()}'. Baseline intact.",
+        ip_address=client_ip
+    )
+
+    # 4. Record in audit trail
+    await audit_repo.create_log(
+        user_id=str(current_user["_id"]),
+        action="EVIDENCE_AUTHORIZED_MODIFICATION",
+        ip_address=client_ip,
+        user_agent=request.headers.get("user-agent", "Unknown"),
+        case_id=evidence["case_id"],
+        details=f"Authorized evidence modification on '{evidence['original_filename']}' (Evidence: {evidence_id}). Reason: '{reason.strip()}'. Old Hash: {evidence.get('sha256_hash')}, New Hash: {new_hash}."
+    )
+
+    return updated_evidence
+
+@router.post("/evidence/{evidence_id}/confirm-tamper")
+async def confirm_evidence_tampering(
+    evidence_id: str,
+    payload: ConfirmTamperRequest,
+    request: Request,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """
+    Confirm unauthorized tampering on evidence following forensic review.
+    Rule A: Assigns confirmed TAMPERED status, preserves original backup & hash,
+    records attribution / unknown attribution, and enables Original Evidence Backup download.
+    """
+    require_not_portal_manager_for_evidence(current_user)
+
+    if current_user.get("role") == UserRole.READONLY:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="UNAUTHORIZED: Read-only accounts cannot confirm tampering"
+        )
+
+    db = get_database()
+    evidence_repo = EvidenceRepository(db)
+    audit_repo = AuditRepository(db)
+
+    evidence = await evidence_repo.get_by_id(evidence_id)
+    if not evidence:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="EVIDENCE_NOT_FOUND")
+
+    if not is_admin(current_user):
+        case_repo = CaseRepository(db)
+        case = await case_repo.get_by_id(evidence["case_id"])
+        if not case:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Associated case not found")
+        require_case_access(current_user, case, for_write=True)
+
+    now = datetime.now(timezone.utc)
+    client_ip = request.client.host if request.client else "127.0.0.1"
+
+    actor = payload.attributed_actor or payload.attacker_attribution or "UNKNOWN_ATTRIBUTION"
+    reason_str = payload.reason or "Forensic inspection confirmed unauthorized byte mutation"
+    tamper_details = {
+        "confirmed_at": now,
+        "confirmed_by": str(current_user["_id"]),
+        "confirmed_by_name": current_user.get("name", "Investigator"),
+        "reason": reason_str.strip(),
+        "attacker_attribution": actor,
+        "attributed_actor": actor,
+        "tamper_method": payload.tamper_method or "STORAGE_MUTATION",
+        "investigation_notes": (payload.investigation_notes or "").strip()
+    }
+
+    updated_evidence = await evidence_repo.confirm_tampering(evidence_id, tamper_details)
+
+    # Record custody event
+    await ChainOfCustodyService.record_event(
+        db=db,
+        evidence_id=evidence_id,
+        case_id=evidence["case_id"],
+        action=CustodyAction.TAMPER_CONFIRMED.value,
+        actor_id=str(current_user["_id"]),
+        actor_name=current_user.get("name", "Investigator"),
+        details=f"Unauthorized tampering CONFIRMED on '{evidence['original_filename']}'. Attribution: {tamper_details['attacker_attribution']}. Reason: {tamper_details['reason']}.",
+        ip_address=client_ip
+    )
+
+    # Record in audit trail
+    await audit_repo.create_log(
+        user_id=str(current_user["_id"]),
+        action="EVIDENCE_TAMPERING_CONFIRMED",
+        ip_address=client_ip,
+        user_agent=request.headers.get("user-agent", "Unknown"),
+        case_id=evidence["case_id"],
+        details=f"Unauthorized tampering confirmed on '{evidence['original_filename']}'. Attribution: {tamper_details['attacker_attribution']}. Reason: {tamper_details['reason']}."
+    )
+
+    return updated_evidence
 
 @router.get("/evidence/{evidence_id}/custody")
 async def get_evidence_custody_history(evidence_id: str, current_user: Dict[str, Any] = Depends(get_current_user)):
@@ -462,6 +671,8 @@ async def get_evidence_custody_history(evidence_id: str, current_user: Dict[str,
     Retrieve chronological Chain of Custody events for an evidence artifact
     with cryptographic hash chain validation.
     """
+    require_not_portal_manager_for_evidence(current_user)
+
     db = get_database()
     evidence_repo = EvidenceRepository(db)
 
@@ -482,7 +693,8 @@ async def get_evidence_custody_history(evidence_id: str, current_user: Dict[str,
         "original_filename": evidence.get("original_filename"),
         "sha256_hash": evidence.get("sha256_hash"),
         "total_events": len(history),
-        "history": history
+        "history": history,
+        "custody_events": history
     }
 
 @router.get("/custody")
@@ -495,6 +707,8 @@ async def get_all_custody_events(
     """
     Retrieve all Chain of Custody events across the platform with evidence & case details.
     """
+    require_not_portal_manager_for_evidence(current_user)
+
     db = get_database()
     query: Dict[str, Any] = {}
 

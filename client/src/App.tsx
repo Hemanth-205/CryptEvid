@@ -15,6 +15,7 @@ import ChainOfCustodyPage from './pages/ChainOfCustodyPage';
 import SecurityAlertsPage from './pages/SecurityAlertsPage';
 import ReportsPage from './pages/ReportsPage';
 import Settings from './pages/Settings';
+import PortalManagerDashboard from './pages/PortalManagerDashboard';
 import HardwareTelemetryCard from './components/HardwareTelemetryCard';
 
 import { 
@@ -23,6 +24,8 @@ import {
   RefreshCw,
   CheckCircle2,
   AlertTriangle,
+  ShieldAlert,
+  ArrowLeft,
   Network,
   Radar,
   FileText,
@@ -385,8 +388,28 @@ const DevicesView: React.FC = () => {
   );
 };
 
+const EvidenceAccessDeniedView: React.FC = () => (
+  <div className="max-w-2xl mx-auto my-12 p-8 ws-panel border border-red-200 bg-red-50/40 text-center space-y-4">
+    <div className="w-12 h-12 rounded-full bg-red-100 text-red-600 flex items-center justify-center mx-auto">
+      <ShieldAlert className="w-6 h-6" />
+    </div>
+    <h2 className="text-xl font-bold text-slate-900">Confidentiality Policy: Evidence Access Restricted</h2>
+    <p className="text-sm text-slate-600 leading-relaxed">
+      In accordance with CRYPTEVID Evidence Confidentiality Policy, the Portal Manager role is strictly limited to user management, personnel allocations, and case administrative oversight. Direct access to evidence exhibits, vault bytes, chain of custody logs, and forensic reports is strictly prohibited.
+    </p>
+    <div className="pt-2">
+      <Link to="/portal-manager" className="ws-btn ws-btn-amber inline-flex">
+        Return to Portal Manager Dashboard
+      </Link>
+    </div>
+  </div>
+);
+
 // Professional Main Dashboard Shell Layout with Horizontal Top Navigation
 const DashboardLayout = () => {
+  const { user } = useAuth();
+  const isPortalManager = user?.role === 'portal_manager';
+
   return (
     <div className="min-h-screen flex flex-col font-sans relative bg-slate-50 text-slate-900">
       {/* Modern Horizontal Navigation Bar */}
@@ -396,21 +419,22 @@ const DashboardLayout = () => {
       <main className="flex-1 w-full max-w-[1920px] mx-auto p-4 sm:p-6 lg:p-8 relative z-10">
         <ErrorBoundary fallbackTitle="Forensic Module Error">
           <Routes>
-            <Route path="/" element={<Navigate to="/dashboard" replace />} />
-            <Route path="/dashboard" element={<DashboardView />} />
-            <Route path="/cases" element={<Cases />} />
-            <Route path="/cases/:caseId" element={<CaseDetail />} />
-            <Route path="/evidence" element={<Navigate to="/cases" replace />} />
-            <Route path="/graph" element={<EvidenceGraphPage />} />
-            <Route path="/ai-analysis" element={<AIAnalysisPage />} />
-            <Route path="/ai-analysis/:caseId" element={<AIAnalysisPage />} />
-            <Route path="/security-alerts" element={<SecurityAlertsPage />} />
-            <Route path="/reports" element={<ReportsPage />} />
-            <Route path="/custody" element={<ChainOfCustodyPage />} />
-            <Route path="/logs" element={<Navigate to="/custody" replace />} />
-            <Route path="/devices" element={<DevicesView />} />
+            <Route path="/" element={<Navigate to={isPortalManager ? "/portal-manager" : "/dashboard"} replace />} />
+            <Route path="/dashboard" element={isPortalManager ? <PortalManagerDashboard /> : <DashboardView />} />
+            <Route path="/portal-manager" element={<PortalManagerDashboard />} />
+            <Route path="/cases" element={isPortalManager ? <EvidenceAccessDeniedView /> : <Cases />} />
+            <Route path="/cases/:caseId" element={isPortalManager ? <EvidenceAccessDeniedView /> : <CaseDetail />} />
+            <Route path="/evidence" element={<Navigate to={isPortalManager ? "/portal-manager" : "/cases"} replace />} />
+            <Route path="/graph" element={isPortalManager ? <EvidenceAccessDeniedView /> : <EvidenceGraphPage />} />
+            <Route path="/ai-analysis" element={isPortalManager ? <EvidenceAccessDeniedView /> : <AIAnalysisPage />} />
+            <Route path="/ai-analysis/:caseId" element={isPortalManager ? <EvidenceAccessDeniedView /> : <AIAnalysisPage />} />
+            <Route path="/security-alerts" element={isPortalManager ? <EvidenceAccessDeniedView /> : <SecurityAlertsPage />} />
+            <Route path="/reports" element={isPortalManager ? <EvidenceAccessDeniedView /> : <ReportsPage />} />
+            <Route path="/custody" element={isPortalManager ? <EvidenceAccessDeniedView /> : <ChainOfCustodyPage />} />
+            <Route path="/logs" element={<Navigate to={isPortalManager ? "/portal-manager" : "/custody"} replace />} />
+            <Route path="/devices" element={isPortalManager ? <EvidenceAccessDeniedView /> : <DevicesView />} />
             <Route path="/settings" element={<Settings />} />
-            <Route path="*" element={<Navigate to="/dashboard" replace />} />
+            <Route path="*" element={<Navigate to={isPortalManager ? "/portal-manager" : "/dashboard"} replace />} />
           </Routes>
         </ErrorBoundary>
       </main>

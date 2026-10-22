@@ -28,6 +28,7 @@ import {
   User as UserIcon,
   Cpu,
   ShieldCheck,
+  ShieldAlert,
   FileDown,
   FileText,
   BookOpen,
@@ -611,6 +612,33 @@ export const CaseDetail: React.FC = () => {
     }
   };
 
+  const [downloadingBackupId, setDownloadingBackupId] = useState<string | null>(null);
+
+  const handleDownloadOriginalBackup = async (evidence: Evidence) => {
+    if (user?.role === 'portal_manager') {
+      alert('Access Denied: Portal Managers are restricted from downloading evidence backups.');
+      return;
+    }
+    setDownloadingBackupId(evidence._id);
+    try {
+      const blobData = await evidenceApi.downloadBackupBlob(evidence._id);
+      const blob = new Blob([blobData]);
+      const blobUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = `ORIGINAL_BACKUP_${evidence.original_filename || 'evidence.bin'}`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => window.URL.revokeObjectURL(blobUrl), 1000);
+    } catch (err: any) {
+      console.error('Evidence original backup download failed:', err);
+      alert(err.response?.data?.detail || err.message || 'Failed to download preserved original backup.');
+    } finally {
+      setDownloadingBackupId(null);
+    }
+  };
+
   const handleCopy = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
     setCopiedHash(id);
@@ -709,6 +737,15 @@ export const CaseDetail: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2">
+            {/* If any evidence item has confirmed TAMPERED status, show Original Evidence Backup section next to Download Report */}
+            {evidenceList.some(e => e.integrity_status === 'TAMPERED') && (
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-red-50 border border-red-300 text-red-800 text-xs font-mono">
+                <ShieldAlert className="w-4 h-4 text-red-600 shrink-0" />
+                <span className="font-bold">Original Evidence Backup:</span>
+                <span className="text-[11px] text-red-700">Preserved for {evidenceList.filter(e => e.integrity_status === 'TAMPERED').length} tampered exhibit(s)</span>
+              </div>
+            )}
+
             <button
               onClick={requestReportDownload}
               disabled={downloadingReport}
@@ -1083,9 +1120,13 @@ export const CaseDetail: React.FC = () => {
                       </td>
                       <td>
                         <span className={`ws-badge ${
-                          ev.integrity_status === 'VERIFIED' ? 'ws-badge-green' : 'ws-badge-red'
+                          ev.integrity_status === 'VERIFIED' ? 'ws-badge-green' :
+                          ev.integrity_status === 'TAMPERED' ? 'ws-badge-red' :
+                          ev.integrity_status === 'INTEGRITY_MISMATCH' ? 'bg-amber-100 text-amber-800 border-amber-300' :
+                          ev.integrity_status === 'UNDER_INVESTIGATION' ? 'bg-indigo-100 text-indigo-800 border-indigo-300' :
+                          'ws-badge-gray'
                         }`}>
-                          {ev.integrity_status}
+                          {ev.integrity_status === 'VERIFIED' ? 'INTACT' : ev.integrity_status}
                         </span>
                       </td>
                       <td className="font-mono text-xs text-slate-600">
@@ -1093,6 +1134,18 @@ export const CaseDetail: React.FC = () => {
                       </td>
                       <td className="text-right whitespace-nowrap" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1.5">
+                          {ev.integrity_status === 'TAMPERED' && user?.role !== 'portal_manager' && (
+                            <button
+                              onClick={() => requireEvidenceAuth(`Download Original Backup: ${ev.original_filename}`, () => handleDownloadOriginalBackup(ev))}
+                              disabled={downloadingBackupId === ev._id}
+                              className="ws-btn ws-btn-amber !py-1 !px-2 !text-[11px] font-bold text-red-700 bg-red-50 border-red-200 hover:bg-red-100"
+                              title="Download Preserved Original Backup"
+                            >
+                              <ShieldAlert className="w-3 h-3 text-red-600" />
+                              <span>{downloadingBackupId === ev._id ? 'Downloading...' : 'Original Backup'}</span>
+                            </button>
+                          )}
+
                           <button
                             onClick={() => requireEvidenceAuth(`Verify Exhibit: ${ev.original_filename}`, () => handleVerifyEvidence(ev._id))}
                             disabled={verifyingId === ev._id}
@@ -2085,28 +2138,109 @@ export const CaseDetail: React.FC = () => {
               <div className="flex justify-between py-1.5 border-b border-slate-100">
                 <span className="text-slate-500">INTEGRITY STATUS:</span>
                 <span className={`ws-badge ${
-                  inspectEvidence.integrity_status === 'VERIFIED' ? 'ws-badge-green' : 'ws-badge-red'
+                  inspectEvidence.integrity_status === 'VERIFIED' ? 'ws-badge-green' :
+                  inspectEvidence.integrity_status === 'TAMPERED' ? 'ws-badge-red' :
+                  inspectEvidence.integrity_status === 'INTEGRITY_MISMATCH' ? 'bg-amber-100 text-amber-800 border-amber-300' :
+                  inspectEvidence.integrity_status === 'UNDER_INVESTIGATION' ? 'bg-indigo-100 text-indigo-800 border-indigo-300' :
+                  'ws-badge-gray'
                 }`}>
-                  {inspectEvidence.integrity_status}
+                  {inspectEvidence.integrity_status === 'VERIFIED' ? 'INTACT' : inspectEvidence.integrity_status}
                 </span>
               </div>
               <div className="space-y-1 pt-1">
-                <span className="text-slate-500 block text-[10px]">SHA-256 HASH</span>
+                <span className="text-slate-500 block text-[10px]">CURRENT SHA-256 HASH</span>
                 <div className="p-2.5 rounded bg-slate-50 border border-slate-200 text-[10px] text-blue-600 break-all select-all">
                   {inspectEvidence.sha256_hash}
                 </div>
               </div>
+
+              {/* Section: Original Evidence Backup - Shown ONLY when evidence has confirmed TAMPERED status */}
+              {inspectEvidence.integrity_status === 'TAMPERED' && (
+                <div className="mt-4 p-4 rounded-xl bg-red-50/70 border border-red-200 space-y-3 font-sans">
+                  <div className="flex items-center justify-between border-b border-red-200 pb-2">
+                    <div className="flex items-center gap-2">
+                      <ShieldAlert className="w-4 h-4 text-red-600" />
+                      <h4 className="text-xs font-bold text-red-900 uppercase font-mono tracking-wider">
+                        Original Evidence Backup
+                      </h4>
+                    </div>
+                    <span className="px-2 py-0.5 rounded bg-red-100 text-red-800 text-[10px] font-mono font-bold">
+                      Preserved Immutable Baseline
+                    </span>
+                  </div>
+
+                  <p className="text-[11px] text-slate-700 leading-relaxed">
+                    This exhibit has been confirmed as <strong>TAMPERED</strong>. CRYPTEVID preserved the original immutable acquisition artifact before any unauthorized alterations occurred.
+                  </p>
+
+                  {inspectEvidence.has_original_backup === false ? (
+                    <div className="p-2.5 rounded bg-amber-50 border border-amber-300 text-amber-800 text-xs flex items-center gap-2 font-mono">
+                      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                      <span>Warning: No verified preserved original backup exists for this exhibit.</span>
+                    </div>
+                  ) : (
+                    <div className="space-y-2 text-xs font-mono bg-white p-3 rounded-lg border border-red-100 shadow-2xs">
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">Original Filename:</span>
+                        <span className="font-semibold text-slate-800">{inspectEvidence.original_filename}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">Preservation Timestamp:</span>
+                        <span className="text-slate-700">
+                          {inspectEvidence.created_at ? formatIsoDateSafe(inspectEvidence.created_at, 19) + ' UTC' : 'Preserved at Acquisition'}
+                        </span>
+                      </div>
+                      <div className="space-y-1 pt-1">
+                        <span className="text-slate-500 block text-[10px]">ORIGINAL SHA-256 HASH (PRE-TAMPER)</span>
+                        <div className="p-2 rounded bg-slate-50 border border-slate-200 text-[10px] text-emerald-700 font-bold break-all select-all">
+                          {inspectEvidence.original_sha256_hash || inspectEvidence.sha256_hash}
+                        </div>
+                      </div>
+
+                      {user?.role !== 'portal_manager' ? (
+                        <div className="pt-2 flex justify-end">
+                          <button
+                            type="button"
+                            onClick={() => handleDownloadOriginalBackup(inspectEvidence)}
+                            disabled={downloadingBackupId === inspectEvidence._id}
+                            className="ws-btn ws-btn-amber text-xs font-bold flex items-center gap-1.5 shadow-xs"
+                          >
+                            <Download className="w-3.5 h-3.5 text-amber-800" />
+                            <span>
+                              {downloadingBackupId === inspectEvidence._id ? 'Downloading Preserved File...' : 'Download Preserved Original Backup'}
+                            </span>
+                          </button>
+                        </div>
+                      ) : (
+                        <p className="text-[10px] text-slate-400 italic">
+                          Portal Managers are restricted from downloading original evidence backups.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="flex items-center justify-between px-5 py-3.5 border-t border-slate-200 bg-slate-50 shrink-0">
-              <button
-                type="button"
-                onClick={() => handleDownload(inspectEvidence)}
-                className="ws-btn ws-btn-secondary text-xs flex items-center gap-1.5"
-              >
-                <Download className="w-3.5 h-3.5 text-blue-500" />
-                <span>Download Copy</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleDownload(inspectEvidence)}
+                  className="ws-btn ws-btn-secondary text-xs flex items-center gap-1.5"
+                >
+                  <Download className="w-3.5 h-3.5 text-blue-500" />
+                  <span>Download Copy</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={requestReportDownload}
+                  className="ws-btn ws-btn-secondary text-xs flex items-center gap-1.5"
+                >
+                  <FileDown className="w-3.5 h-3.5 text-slate-600" />
+                  <span>Download Report</span>
+                </button>
+              </div>
               <button 
                 type="button" 
                 onClick={() => setInspectEvidence(null)} 

@@ -7,7 +7,13 @@ from bson import ObjectId
 from app.core.database import get_database
 from app.core.config import settings
 from app.routers.auth import get_current_user
-from app.core.rbac import is_admin, require_case_access, get_accessible_case_ids, can_view_all_cases
+from app.core.rbac import (
+    is_admin,
+    require_case_access,
+    get_accessible_case_ids,
+    can_view_all_cases,
+    require_not_portal_manager_for_evidence
+)
 from app.models.user import UserRole
 from app.models.report import ForensicReportResponse, ReportListResponse, ReportGenerateRequest
 from app.repositories.case import CaseRepository
@@ -28,6 +34,8 @@ async def generate_case_report(
     cryptographic chain-of-custody ledger, forensic timeline events, topological graph,
     deterministic risk scoring, AI threat reasoning, and actionable countermeasures.
     """
+    require_not_portal_manager_for_evidence(current_user)
+
     if current_user.get("role") == UserRole.READONLY:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -62,6 +70,8 @@ async def list_case_reports(
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
     """List all cryptographically sealed forensic report versions generated for a case."""
+    require_not_portal_manager_for_evidence(current_user)
+
     db = get_database()
     case_repo = CaseRepository(db)
     case = await case_repo.get_by_id(case_id)
@@ -100,6 +110,8 @@ async def list_case_reports(
 @router.get("/reports")
 async def list_all_reports(current_user: Dict[str, Any] = Depends(get_current_user)):
     """List all cryptographically sealed forensic reports across all accessible cases."""
+    require_not_portal_manager_for_evidence(current_user)
+
     db = get_database()
     query = {}
     if not can_view_all_cases(current_user):
@@ -133,6 +145,8 @@ async def get_report_metadata(
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
     """Retrieve metadata and cryptographic hash seal for a specific report."""
+    require_not_portal_manager_for_evidence(current_user)
+
     db = get_database()
     oid = ObjectId(report_id) if ObjectId.is_valid(report_id) else None
     doc = await db["forensic_reports"].find_one({"_id": oid if oid else report_id})
@@ -192,7 +206,7 @@ async def download_forensic_report(
     if not doc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="REPORT_NOT_FOUND")
 
-    user_role = payload.get("role")
+    user_role = str(payload.get("role", "")).lower()
     sub = payload.get("sub")
     user_repo = UserRepository(db)
     user_doc = await user_repo.get_by_email(sub) if sub else None
@@ -200,6 +214,12 @@ async def download_forensic_report(
         user_doc = await user_repo.get_by_id(sub)
     if not user_doc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+
+    if user_role in ("portal_manager", "portalmanager") or str(user_doc.get("role", "")).lower() in ("portal_manager", "portalmanager"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="EVIDENCE_CONFIDENTIALITY_VIOLATION: Portal Manager is strictly restricted from downloading forensic reports."
+        )
 
     if user_role != UserRole.ADMIN.value and user_role != "admin":
         case_repo = CaseRepository(db)

@@ -60,6 +60,15 @@ async def ensure_default_users():
                 "rfid": "C3D4E5F6",
                 "fingerprint_id": 20,
                 "is_active": True
+            },
+            {
+                "email": "manager@forensics.gov",
+                "name": "Portal Operations Manager",
+                "role": "portal_manager",
+                "password": "password123",
+                "rfid": "D1E2F3A4",
+                "fingerprint_id": 15,
+                "is_active": True
             }
         ]
 

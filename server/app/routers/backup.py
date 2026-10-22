@@ -233,30 +233,58 @@ async def download_backup(
 
     The physical path is resolved internally and never exposed.
     """
-    _require_admin(current_user)
+    # Access control: ADMIN or authorized investigator assigned to the case.
+    # STRICT CONFIDENTIALITY: PORTAL_MANAGER and READONLY are strictly forbidden!
+    role = str(current_user.get("role", "")).lower()
+    if role in ("portal_manager", "portalmanager", "readonly", "court_auditor", "auditor"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="BACKUP_ACCESS_DENIED: You are not authorized to download preserved evidence backups."
+        )
 
     db = get_database()
     evidence_repo = EvidenceRepository(db)
     audit_repo = AuditRepository(db)
     backup_repo = BackupRepository(db)
+    case_repo = CaseRepository(db)
 
     evidence = await evidence_repo.get_by_id(evidence_id)
     if not evidence:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="EVIDENCE_NOT_FOUND")
+
+    if not is_admin(current_user):
+        case = await case_repo.get_by_id(evidence["case_id"])
+        if not case:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Associated case not found")
+        require_case_access(current_user, case)
 
     # Get backup record (includes physical path)
     record = await backup_repo.get_by_evidence_id(evidence_id)
     if not record:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="BACKUP_NOT_FOUND: No preserved original backup exists."
+            detail="BACKUP_NOT_FOUND: No verified original backup exists for this evidence artifact."
         )
 
     storage_path = record.get("storage_path", "")
     if not storage_path or not os.path.exists(storage_path):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="BACKUP_FILE_MISSING: Physical backup file not found on storage."
+            detail="BACKUP_FILE_MISSING: Physical backup file not found on storage vault."
+        )
+
+    # Verify backup integrity before serving - prevent serving corrupted backup
+    import hashlib
+    hasher = hashlib.sha256()
+    with open(storage_path, "rb") as bf:
+        while chunk := bf.read(64 * 1024):
+            hasher.update(chunk)
+    actual_backup_hash = hasher.hexdigest().lower()
+    expected_backup_hash = (record.get("backup_sha256") or record.get("original_sha256", "")).lower()
+    if expected_backup_hash and actual_backup_hash != expected_backup_hash:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="BACKUP_CORRUPTED: Preserved original backup integrity check failed. The backup file is corrupted."
         )
 
     client_ip = request.client.host if request.client else "127.0.0.1"
