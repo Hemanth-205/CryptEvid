@@ -26,6 +26,7 @@ import api, { getApiBaseUrl } from '../services/api';
 export const Login: React.FC = () => {
   const navigate = useNavigate();
   const { 
+    user,
     login, 
     register,
     simulationMode, 
@@ -36,12 +37,13 @@ export const Login: React.FC = () => {
     clearStage1Ticket
   } = useAuth();
 
-  // If already authenticated, redirect to dashboard
+  // If already authenticated, redirect to portal-manager for admin or dashboard for caseworkers
   useEffect(() => {
     if (isAuthenticated || (typeof window !== 'undefined' && localStorage.getItem('forensic_token'))) {
-      window.location.href = '/dashboard';
+      const isManagerOrAdmin = user?.role === 'admin' || user?.role === 'portal_manager';
+      window.location.href = isManagerOrAdmin ? '/portal-manager' : '/dashboard';
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, user?.role]);
 
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
 
@@ -338,7 +340,7 @@ export const Login: React.FC = () => {
     try {
       // Pass the single-use hardware ticket ID from Stage 1
       const loggedUser = await login(cleanId, cleanPass, stage1Ticket?.ticket_id);
-      if (loggedUser?.role === 'portal_manager') {
+      if (loggedUser?.role === 'admin' || loggedUser?.role === 'portal_manager') {
         navigate('/portal-manager', { replace: true });
       } else {
         navigate('/dashboard', { replace: true });

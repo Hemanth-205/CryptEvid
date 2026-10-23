@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { Navigate } from 'react-router-dom';
 import {
   Users,
   FolderLock,
@@ -29,6 +30,13 @@ import type {
 export const PortalManagerDashboard: React.FC = () => {
   const { user: currentUser } = useAuth();
   const isAdmin = currentUser?.role === 'admin';
+  const isPortalManager = currentUser?.role === 'portal_manager';
+  const isAuthorized = isAdmin || isPortalManager;
+
+  // Strict RBAC Guard: This portal user page ONLY displays for the admin login user
+  if (!isAuthorized) {
+    return <Navigate to="/dashboard" replace />;
+  }
 
   // Active Tab
   const [activeTab, setActiveTab] = useState<'users' | 'cases'>('users');
@@ -298,7 +306,7 @@ export const PortalManagerDashboard: React.FC = () => {
               <span>Portal Operations & User Management</span>
             </h1>
             <span className="ws-badge ws-badge-blue text-[10px] font-mono uppercase">
-              PORTAL_MANAGER
+              {isAdmin ? 'ADMINISTRATOR' : 'PORTAL_MANAGER'}
             </span>
           </div>
           <p className="text-xs text-slate-500 mt-1 font-sans">
@@ -338,7 +346,7 @@ export const PortalManagerDashboard: React.FC = () => {
             STRICT EVIDENCE CONFIDENTIALITY POLICY ACTIVE
           </span>
           <p className="text-slate-600 text-[11px] leading-relaxed">
-            As Portal Manager, you oversee portal personnel, account activation, and officer case allocations. Under the judicial chain-of-custody standard, evidence files, physical exhibits, and forensic examination reports remain cryptographically sealed to authorized casework investigators.
+            {isAdmin ? 'As Administrator' : 'As Portal Manager'}, you oversee portal personnel, account activation, and officer case allocations. Under the judicial chain-of-custody standard, evidence files, physical exhibits, and forensic examination reports remain cryptographically sealed to authorized casework investigators.
           </p>
         </div>
       </div>

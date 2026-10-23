@@ -47,30 +47,27 @@ export const HorizontalNavbar: React.FC = () => {
 
   const isPortalManager = user?.role === 'portal_manager';
   const isAdmin = user?.role === 'admin';
+  const isManagerOrAdmin = isAdmin || isPortalManager;
 
   const navItems = useMemo(() => {
-    if (isPortalManager) {
+    // In Admin login, ONLY Portal Users and Settings page must be visible
+    if (isManagerOrAdmin) {
       return [
-        { name: 'Portal Dashboard', path: '/dashboard' },
+        { name: 'Portal Users', path: '/portal-manager' },
         { name: 'Settings', path: '/settings' },
       ];
     }
-    const items = [
+    // For other users (investigator, lead investigator, etc.), Portal Users is NOT displayed
+    return [
       { name: 'Dashboard', path: '/dashboard' },
       { name: 'Cases', path: '/cases' },
-    ];
-    if (isAdmin) {
-      items.push({ name: 'Portal Users', path: '/portal-manager' });
-    }
-    items.push(
       { name: 'Graph', path: '/graph' },
       { name: 'Threat Intel', path: '/ai-analysis' },
       { name: 'Alerts', path: '/security-alerts' },
       { name: 'Reports', path: '/reports' },
       { name: 'Settings', path: '/settings' }
-    );
-    return items;
-  }, [isPortalManager, isAdmin]);
+    ];
+  }, [isManagerOrAdmin]);
 
   return (
     <header className="sticky top-0 z-50 select-none border-b transition-colors duration-200 bg-white border-slate-200 text-slate-900 shadow-xs">
@@ -80,7 +77,7 @@ export const HorizontalNavbar: React.FC = () => {
           
           {/* Left: Brand Identity */}
           <div className="flex items-center gap-4 shrink-0">
-            <Link to="/dashboard" className="flex items-center gap-3 group">
+            <Link to={isManagerOrAdmin ? "/portal-manager" : "/dashboard"} className="flex items-center gap-3 group">
               <img
                 src="/cryptevid_logo.png"
                 alt="CRYPTEVID"
@@ -169,45 +166,47 @@ export const HorizontalNavbar: React.FC = () => {
         </div>
       </div>
 
-      {/* Sub-header Context Bar: Active Case Dossier Breadcrumb */}
-      <div className="w-full px-5 sm:px-8 lg:px-12 py-1.5 text-xs font-mono border-t bg-slate-50 border-slate-200 text-slate-600">
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2.5 truncate">
-            <span className="text-[11px] uppercase tracking-wider font-semibold text-slate-600">
-              ACTIVE CASE:
-            </span>
-            {activeCase ? (
-              <div className="flex items-center gap-2 truncate">
-                <Link
-                  to={`/cases/${activeCase._id}`}
-                  className="font-bold hover:underline truncate text-blue-600 hover:text-blue-700"
-                >
-                  {activeCase.case_number}
-                </Link>
-                <span className="text-slate-300">|</span>
-                <span className="truncate font-sans text-xs text-slate-800 font-medium">
-                  {activeCase.title}
-                </span>
-                <span
-                  className={`ws-badge ${
-                    activeCase.status === 'IN_PROGRESS'
-                      ? 'ws-badge-amber'
-                      : activeCase.status === 'CLOSED'
-                      ? 'ws-badge-green'
-                      : 'ws-badge-gray'
-                  }`}
-                >
-                  {activeCase.status}
-                </span>
-              </div>
-            ) : (
-              <span className="text-xs text-slate-600">
-                No active case selected • Open case file to bind context
+      {/* Sub-header Context Bar: Active Case Dossier Breadcrumb (Visible only to casework investigators) */}
+      {!isManagerOrAdmin && (
+        <div className="w-full px-5 sm:px-8 lg:px-12 py-1.5 text-xs font-mono border-t bg-slate-50 border-slate-200 text-slate-600">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-2.5 truncate">
+              <span className="text-[11px] uppercase tracking-wider font-semibold text-slate-600">
+                ACTIVE CASE:
               </span>
-            )}
+              {activeCase ? (
+                <div className="flex items-center gap-2 truncate">
+                  <Link
+                    to={`/cases/${activeCase._id}`}
+                    className="font-bold hover:underline truncate text-blue-600 hover:text-blue-700"
+                  >
+                    {activeCase.case_number}
+                  </Link>
+                  <span className="text-slate-300">|</span>
+                  <span className="truncate font-sans text-xs text-slate-800 font-medium">
+                    {activeCase.title}
+                  </span>
+                  <span
+                    className={`ws-badge ${
+                      activeCase.status === 'IN_PROGRESS'
+                        ? 'ws-badge-amber'
+                        : activeCase.status === 'CLOSED'
+                        ? 'ws-badge-green'
+                        : 'ws-badge-gray'
+                    }`}
+                  >
+                    {activeCase.status}
+                  </span>
+                </div>
+              ) : (
+                <span className="text-xs text-slate-600">
+                  No active case selected • Open case file to bind context
+                </span>
+              )}
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Mobile Drawer Menu - Text Only with Full Profile & Controls */}
       {mobileMenuOpen && (
