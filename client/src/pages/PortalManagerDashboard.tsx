@@ -30,11 +30,9 @@ import type {
 export const PortalManagerDashboard: React.FC = () => {
   const { user: currentUser } = useAuth();
   const isAdmin = currentUser?.role === 'admin';
-  const isPortalManager = currentUser?.role === 'portal_manager';
-  const isAuthorized = isAdmin || isPortalManager;
 
   // Strict RBAC Guard: This portal user page ONLY displays for the admin login user
-  if (!isAuthorized) {
+  if (!isAdmin) {
     return <Navigate to="/dashboard" replace />;
   }
 
@@ -482,10 +480,10 @@ export const PortalManagerDashboard: React.FC = () => {
                 className="ws-select text-xs"
               >
                 <option value="ALL">All Roles</option>
-                <option value="admin">Chief Investigator (Admin)</option>
+                <option value="admin">System Administrator</option>
+                <option value="chief_investigator">Chief Investigator</option>
                 <option value="investigator">Forensic Investigator</option>
                 <option value="readonly">Court Auditor (Read-Only)</option>
-                <option value="portal_manager">Portal Operations Manager</option>
               </select>
 
               <select
@@ -572,8 +570,8 @@ export const PortalManagerDashboard: React.FC = () => {
                             className={`ws-badge text-[10px] ${
                               u.role === 'admin'
                                 ? 'ws-badge-red'
-                                : u.role === 'portal_manager'
-                                ? 'ws-badge-blue'
+                                : u.role === 'chief_investigator'
+                                ? 'ws-badge-purple'
                                 : u.role === 'readonly'
                                 ? 'ws-badge-gray'
                                 : 'ws-badge-green'
@@ -942,19 +940,10 @@ export const PortalManagerDashboard: React.FC = () => {
                   className="ws-select w-full"
                 >
                   <option value="investigator">Forensic Investigator (Case Access)</option>
+                  <option value="chief_investigator">Chief Investigator (Full Casework & Operations)</option>
                   <option value="readonly">Court Auditor (Platform-Wide Read-Only)</option>
-                  {isAdmin && (
-                    <>
-                      <option value="portal_manager">Portal Operations Manager</option>
-                      <option value="admin">Chief Investigator (Admin)</option>
-                    </>
-                  )}
+                  <option value="admin">System Administrator (Portal Users & Settings)</option>
                 </select>
-                {!isAdmin && (
-                  <p className="text-[10px] text-slate-400 mt-1 italic">
-                    Note: Portal Managers can provision Investigator and Read-Only roles. Chief Investigator accounts require Admin authorization.
-                  </p>
-                )}
               </div>
 
               <div>
@@ -1058,13 +1047,9 @@ export const PortalManagerDashboard: React.FC = () => {
                   className="ws-select w-full"
                 >
                   <option value="investigator">Forensic Investigator</option>
+                  <option value="chief_investigator">Chief Investigator</option>
                   <option value="readonly">Court Auditor (Read-Only)</option>
-                  {isAdmin && (
-                    <>
-                      <option value="portal_manager">Portal Operations Manager</option>
-                      <option value="admin">Chief Investigator (Admin)</option>
-                    </>
-                  )}
+                  <option value="admin">System Administrator</option>
                 </select>
               </div>
 

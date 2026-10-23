@@ -4,11 +4,18 @@ from fastapi import HTTPException, status
 from app.models.user import UserRole
 
 def is_admin(user: Dict[str, Any]) -> bool:
-    """Check if the user is a Chief Investigator (Admin)."""
+    """Check if the user is a System Administrator."""
     role = user.get("role")
     if isinstance(role, UserRole):
         role = role.value
     return str(role).lower() == "admin"
+
+def is_chief_investigator(user: Dict[str, Any]) -> bool:
+    """Check if the user is a Chief Investigator."""
+    role = user.get("role")
+    if isinstance(role, UserRole):
+        role = role.value
+    return str(role).lower() in ("chief_investigator", "chief")
 
 def is_court_auditor(user: Dict[str, Any]) -> bool:
     """Check if the user is a Court Auditor (ReadOnly)."""
@@ -18,43 +25,42 @@ def is_court_auditor(user: Dict[str, Any]) -> bool:
     return str(role).lower() in ("readonly", "court_auditor", "auditor")
 
 def is_portal_manager(user: Dict[str, Any]) -> bool:
-    """Check if the user is a Portal Manager."""
+    """Legacy check - portal manager role is deprecated in favor of admin."""
     role = user.get("role")
     if isinstance(role, UserRole):
         role = role.value
     return str(role).lower() in ("portal_manager", "portalmanager")
 
 def can_manage_users(user: Dict[str, Any]) -> bool:
-    """Check if user is authorized to manage users (Admin or Portal Manager)."""
-    return is_admin(user) or is_portal_manager(user)
+    """Check if user is authorized to manage users (Admin only)."""
+    return is_admin(user)
 
 def require_not_portal_manager_for_evidence(user: Dict[str, Any]) -> None:
     """
-    Enforce strict evidence confidentiality for Portal Manager.
-    Portal Manager MUST NOT be able to view, preview, inspect, or download evidence,
-    evidence vault paths, custody bytes, or forensic reports.
+    Enforce strict evidence confidentiality for Portal Manager / Admin.
+    Admin is restricted to user management & settings; Chief Investigator has full access.
     """
-    if is_portal_manager(user):
+    if is_portal_manager(user) or is_admin(user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="EVIDENCE_CONFIDENTIALITY_VIOLATION: Portal Manager is strictly restricted from accessing digital evidence files, previews, download endpoints, backups, or forensic examination reports."
+            detail="EVIDENCE_CONFIDENTIALITY_VIOLATION: Administrator account is restricted to Portal User management and Station Settings. Evidence operations are reserved for Chief Investigator and Case Officers."
         )
 
 def can_view_all_cases(user: Dict[str, Any]) -> bool:
     """
-    Chief Investigator (Admin) and Court Auditor (ReadOnly) can view all cases across the system.
-    No case assignment is needed for the Court Auditor.
+    Chief Investigator, Administrator, and Court Auditor can view all cases across the system.
     """
-    return is_admin(user) or is_court_auditor(user)
+    return is_admin(user) or is_chief_investigator(user) or is_court_auditor(user)
 
 def can_user_access_case(user: Dict[str, Any], case: Dict[str, Any], for_write: bool = False) -> bool:
     """
     RBAC Case Access Policy:
-    - Chief Investigator (Admin): Full view and manage access to all cases.
+    - Chief Investigator: Full view and manage access to all cases.
+    - Administrator: Oversight access.
     - Court Auditor (ReadOnly): Can VIEW all cases across the platform without assignment; CANNOT modify.
     - Regular Investigator: Restricted ONLY to cases they created or are assigned to.
     """
-    if is_admin(user):
+    if is_chief_investigator(user) or is_admin(user):
         return True
 
     if is_court_auditor(user):

@@ -5,6 +5,7 @@ from datetime import datetime
 
 class UserRole(str, Enum):
     ADMIN = "admin"
+    CHIEF_INVESTIGATOR = "chief_investigator"
     INVESTIGATOR = "investigator"
     READONLY = "readonly"
     PORTAL_MANAGER = "portal_manager"

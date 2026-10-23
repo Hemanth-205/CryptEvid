@@ -390,8 +390,6 @@ const DevicesView: React.FC = () => {
 const DashboardLayout = () => {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
-  const isPortalManager = user?.role === 'portal_manager';
-  const isManagerOrAdmin = isAdmin || isPortalManager;
 
   return (
     <div className="min-h-screen flex flex-col font-sans relative bg-slate-50 text-slate-900">
@@ -402,27 +400,27 @@ const DashboardLayout = () => {
       <main className="flex-1 w-full max-w-[1920px] mx-auto p-4 sm:p-6 lg:p-8 relative z-10">
         <ErrorBoundary fallbackTitle="Forensic Module Error">
           <Routes>
-            {/* Root and Dashboard: Admin lands on Portal Users, caseworkers land on Command Center */}
-            <Route path="/" element={<Navigate to={isManagerOrAdmin ? "/portal-manager" : "/dashboard"} replace />} />
-            <Route path="/dashboard" element={isManagerOrAdmin ? <Navigate to="/portal-manager" replace /> : <DashboardView />} />
+            {/* Root and Dashboard: Admin lands on Portal Users, caseworkers & Chief Investigator land on Command Center */}
+            <Route path="/" element={<Navigate to={isAdmin ? "/portal-manager" : "/dashboard"} replace />} />
+            <Route path="/dashboard" element={isAdmin ? <Navigate to="/portal-manager" replace /> : <DashboardView />} />
 
-            {/* Portal Users page: ONLY displayed for Admin / Portal Manager. Non-admins are redirected */}
-            <Route path="/portal-manager" element={isManagerOrAdmin ? <PortalManagerDashboard /> : <Navigate to="/dashboard" replace />} />
+            {/* Portal Users page: ONLY displayed for Admin. Non-admins are redirected */}
+            <Route path="/portal-manager" element={isAdmin ? <PortalManagerDashboard /> : <Navigate to="/dashboard" replace />} />
 
             {/* In Admin login: ONLY Portal Users and Settings are visible/accessible */}
-            <Route path="/cases" element={isManagerOrAdmin ? <Navigate to="/portal-manager" replace /> : <Cases />} />
-            <Route path="/cases/:caseId" element={isManagerOrAdmin ? <Navigate to="/portal-manager" replace /> : <CaseDetail />} />
-            <Route path="/evidence" element={<Navigate to={isManagerOrAdmin ? "/portal-manager" : "/cases"} replace />} />
-            <Route path="/graph" element={isManagerOrAdmin ? <Navigate to="/portal-manager" replace /> : <EvidenceGraphPage />} />
-            <Route path="/ai-analysis" element={isManagerOrAdmin ? <Navigate to="/portal-manager" replace /> : <AIAnalysisPage />} />
-            <Route path="/ai-analysis/:caseId" element={isManagerOrAdmin ? <Navigate to="/portal-manager" replace /> : <AIAnalysisPage />} />
-            <Route path="/security-alerts" element={isManagerOrAdmin ? <Navigate to="/portal-manager" replace /> : <SecurityAlertsPage />} />
-            <Route path="/reports" element={isManagerOrAdmin ? <Navigate to="/portal-manager" replace /> : <ReportsPage />} />
-            <Route path="/custody" element={isManagerOrAdmin ? <Navigate to="/portal-manager" replace /> : <ChainOfCustodyPage />} />
-            <Route path="/logs" element={<Navigate to={isManagerOrAdmin ? "/portal-manager" : "/custody"} replace />} />
-            <Route path="/devices" element={isManagerOrAdmin ? <Navigate to="/portal-manager" replace /> : <DevicesView />} />
+            <Route path="/cases" element={isAdmin ? <Navigate to="/portal-manager" replace /> : <Cases />} />
+            <Route path="/cases/:caseId" element={isAdmin ? <Navigate to="/portal-manager" replace /> : <CaseDetail />} />
+            <Route path="/evidence" element={<Navigate to={isAdmin ? "/portal-manager" : "/cases"} replace />} />
+            <Route path="/graph" element={isAdmin ? <Navigate to="/portal-manager" replace /> : <EvidenceGraphPage />} />
+            <Route path="/ai-analysis" element={isAdmin ? <Navigate to="/portal-manager" replace /> : <AIAnalysisPage />} />
+            <Route path="/ai-analysis/:caseId" element={isAdmin ? <Navigate to="/portal-manager" replace /> : <AIAnalysisPage />} />
+            <Route path="/security-alerts" element={isAdmin ? <Navigate to="/portal-manager" replace /> : <SecurityAlertsPage />} />
+            <Route path="/reports" element={isAdmin ? <Navigate to="/portal-manager" replace /> : <ReportsPage />} />
+            <Route path="/custody" element={isAdmin ? <Navigate to="/portal-manager" replace /> : <ChainOfCustodyPage />} />
+            <Route path="/logs" element={<Navigate to={isAdmin ? "/portal-manager" : "/custody"} replace />} />
+            <Route path="/devices" element={isAdmin ? <Navigate to="/portal-manager" replace /> : <DevicesView />} />
             <Route path="/settings" element={<Settings />} />
-            <Route path="*" element={<Navigate to={isManagerOrAdmin ? "/portal-manager" : "/dashboard"} replace />} />
+            <Route path="*" element={<Navigate to={isAdmin ? "/portal-manager" : "/dashboard"} replace />} />
           </Routes>
         </ErrorBoundary>
       </main>
@@ -432,7 +430,7 @@ const DashboardLayout = () => {
 
 const AppRoutes = () => {
   const { isAuthenticated, isLoading, user } = useAuth();
-  const isManagerOrAdmin = user?.role === 'admin' || user?.role === 'portal_manager';
+  const isAdmin = user?.role === 'admin';
 
   if (isLoading) {
     return (
@@ -449,19 +447,19 @@ const AppRoutes = () => {
         {/* Root Route: If authenticated, redirect to /portal-manager for admin; otherwise show /dashboard */}
         <Route
           path="/"
-          element={isAuthenticated ? <Navigate to={isManagerOrAdmin ? "/portal-manager" : "/dashboard"} replace /> : <LandingPage />}
+          element={isAuthenticated ? <Navigate to={isAdmin ? "/portal-manager" : "/dashboard"} replace /> : <LandingPage />}
         />
 
         {/* Dedicated Login / Register Portal Route */}
         <Route
           path="/login"
-          element={isAuthenticated ? <Navigate to={isManagerOrAdmin ? "/portal-manager" : "/dashboard"} replace /> : <Login />}
+          element={isAuthenticated ? <Navigate to={isAdmin ? "/portal-manager" : "/dashboard"} replace /> : <Login />}
         />
 
         {/* Dedicated Hardware Authentication Portal Route */}
         <Route
           path="/hardware-auth"
-          element={isAuthenticated ? <Navigate to={isManagerOrAdmin ? "/portal-manager" : "/dashboard"} replace /> : <Login />}
+          element={isAuthenticated ? <Navigate to={isAdmin ? "/portal-manager" : "/dashboard"} replace /> : <Login />}
         />
 
         {/* Landing Route alias: always viewable */}

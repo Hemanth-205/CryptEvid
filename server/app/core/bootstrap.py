@@ -36,11 +36,20 @@ async def ensure_default_users():
         default_accounts = [
             {
                 "email": "admin@forensics.gov",
-                "name": "Chief Investigator (Admin)",
+                "name": "System Administrator",
                 "role": "admin",
                 "password": "password123",
                 "rfid": "105B965C",
                 "fingerprint_id": 6,
+                "is_active": True
+            },
+            {
+                "email": "chief@forensics.gov",
+                "name": "Chief Investigator",
+                "role": "chief_investigator",
+                "password": "password123",
+                "rfid": "105B965C",
+                "fingerprint_id": 15,
                 "is_active": True
             },
             {
@@ -60,17 +69,11 @@ async def ensure_default_users():
                 "rfid": "C3D4E5F6",
                 "fingerprint_id": 20,
                 "is_active": True
-            },
-            {
-                "email": "manager@forensics.gov",
-                "name": "Portal Operations Manager",
-                "role": "portal_manager",
-                "password": "password123",
-                "rfid": "105B965C",
-                "fingerprint_id": 15,
-                "is_active": True
             }
         ]
+
+        # Purge deprecated portal_manager account if present
+        await users_col.delete_many({"email": "manager@forensics.gov"})
 
         for acc in default_accounts:
             existing = await users_col.find_one({"email": acc["email"]})

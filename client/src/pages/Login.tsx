@@ -40,8 +40,8 @@ export const Login: React.FC = () => {
   // If already authenticated, redirect to portal-manager for admin or dashboard for caseworkers
   useEffect(() => {
     if (isAuthenticated || (typeof window !== 'undefined' && localStorage.getItem('forensic_token'))) {
-      const isManagerOrAdmin = user?.role === 'admin' || user?.role === 'portal_manager';
-      window.location.href = isManagerOrAdmin ? '/portal-manager' : '/dashboard';
+      const isAdmin = user?.role === 'admin';
+      window.location.href = isAdmin ? '/portal-manager' : '/dashboard';
     }
   }, [isAuthenticated, user?.role]);
 
@@ -340,7 +340,7 @@ export const Login: React.FC = () => {
     try {
       // Pass the single-use hardware ticket ID from Stage 1
       const loggedUser = await login(cleanId, cleanPass, stage1Ticket?.ticket_id);
-      if (loggedUser?.role === 'admin' || loggedUser?.role === 'portal_manager') {
+      if (loggedUser?.role === 'admin') {
         navigate('/portal-manager', { replace: true });
       } else {
         navigate('/dashboard', { replace: true });
@@ -557,14 +557,14 @@ export const Login: React.FC = () => {
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-[10px]">
                   <div className="p-2 rounded bg-slate-50 border border-slate-200">
-                    <span className="block font-bold text-slate-800">Chief Investigator</span>
+                    <span className="block font-bold text-slate-800">System Administrator</span>
                     <span className="text-slate-500 font-mono">admin@forensics.gov</span>
                     <span className="block text-emerald-600 font-medium mt-0.5">Biometric FID: 6</span>
                   </div>
                   <div className="p-2 rounded bg-slate-50 border border-slate-200">
-                    <span className="block font-bold text-slate-800">Portal Manager</span>
-                    <span className="text-slate-500 font-mono">manager@forensics.gov</span>
-                    <span className="block text-emerald-600 font-medium mt-0.5">Biometric FID: 15</span>
+                    <span className="block font-bold text-slate-800">Chief Investigator</span>
+                    <span className="text-slate-500 font-mono">chief@forensics.gov</span>
+                    <span className="block text-purple-600 font-medium mt-0.5">Biometric FID: 15</span>
                   </div>
                 </div>
               </div>
@@ -588,16 +588,16 @@ export const Login: React.FC = () => {
 
               <button
                 type="button"
-                onClick={() => handleSimulateStage1("manager@forensics.gov", 15)}
+                onClick={() => handleSimulateStage1("chief@forensics.gov", 15)}
                 disabled={isSimulatingStage1}
                 className="ws-btn ws-btn-secondary py-2 text-[11px] flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
               >
                 {isSimulatingStage1 ? (
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
                 ) : (
-                  <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
+                  <ShieldCheck className="w-3.5 h-3.5 text-purple-600" />
                 )}
-                <span>Simulate Manager (FID 15)</span>
+                <span>Simulate Chief (FID 15)</span>
               </button>
             </div>
           </div>
@@ -656,8 +656,8 @@ export const Login: React.FC = () => {
                 >
                   <div className="flex items-center justify-between mb-1">
                     <span className="text-xs font-bold">Admin</span>
-                    <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-amber-100 text-amber-800">
-                      Command Center
+                    <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-red-100 text-red-800 font-semibold">
+                      Portal Users & Settings
                     </span>
                   </div>
                   <div className="text-[10px] font-mono text-slate-500 truncate">admin@forensics.gov</div>
@@ -666,22 +666,22 @@ export const Login: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => {
-                    setEmail("manager@forensics.gov");
+                    setEmail("chief@forensics.gov");
                     setPassword("password123");
                   }}
                   className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
-                    email.toLowerCase() === "manager@forensics.gov"
+                    email.toLowerCase() === "chief@forensics.gov"
                       ? "bg-purple-50 border-purple-400 text-purple-900 ring-2 ring-purple-500/20 shadow-xs"
                       : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
                   }`}
                 >
                   <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs font-bold">Portal Manager</span>
-                    <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-purple-100 text-purple-800">
-                      User Dashboard
+                    <span className="text-xs font-bold">Chief Investigator</span>
+                    <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-purple-100 text-purple-800 font-semibold">
+                      All Forensic Pages
                     </span>
                   </div>
-                  <div className="text-[10px] font-mono text-slate-500 truncate">manager@forensics.gov</div>
+                  <div className="text-[10px] font-mono text-slate-500 truncate">chief@forensics.gov</div>
                 </button>
               </div>
             </div>
@@ -696,7 +696,7 @@ export const Login: React.FC = () => {
                   type="text"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="admin@forensics.gov or manager@forensics.gov"
+                  placeholder="admin@forensics.gov or chief@forensics.gov"
                   className="ws-input w-full font-mono text-xs"
                   autoCapitalize="none"
                   autoCorrect="off"

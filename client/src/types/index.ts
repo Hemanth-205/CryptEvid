@@ -1,4 +1,4 @@
-export type UserRole = 'admin' | 'investigator' | 'readonly' | 'portal_manager';
+export type UserRole = 'admin' | 'chief_investigator' | 'investigator' | 'readonly' | 'portal_manager';
 
 export interface User {
   _id: string;

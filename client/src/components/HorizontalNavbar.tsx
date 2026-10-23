@@ -45,19 +45,17 @@ export const HorizontalNavbar: React.FC = () => {
     setMobileMenuOpen(false);
   }, [location.pathname]);
 
-  const isPortalManager = user?.role === 'portal_manager';
   const isAdmin = user?.role === 'admin';
-  const isManagerOrAdmin = isAdmin || isPortalManager;
 
   const navItems = useMemo(() => {
     // In Admin login, ONLY Portal Users and Settings page must be visible
-    if (isManagerOrAdmin) {
+    if (isAdmin) {
       return [
         { name: 'Portal Users', path: '/portal-manager' },
         { name: 'Settings', path: '/settings' },
       ];
     }
-    // For other users (investigator, lead investigator, etc.), Portal Users is NOT displayed
+    // Chief Investigator and remaining investigators have ALL pages
     return [
       { name: 'Dashboard', path: '/dashboard' },
       { name: 'Cases', path: '/cases' },
@@ -67,7 +65,7 @@ export const HorizontalNavbar: React.FC = () => {
       { name: 'Reports', path: '/reports' },
       { name: 'Settings', path: '/settings' }
     ];
-  }, [isManagerOrAdmin]);
+  }, [isAdmin]);
 
   return (
     <header className="sticky top-0 z-50 select-none border-b transition-colors duration-200 bg-white border-slate-200 text-slate-900 shadow-xs">
@@ -77,7 +75,7 @@ export const HorizontalNavbar: React.FC = () => {
           
           {/* Left: Brand Identity */}
           <div className="flex items-center gap-4 shrink-0">
-            <Link to={isManagerOrAdmin ? "/portal-manager" : "/dashboard"} className="flex items-center gap-3 group">
+            <Link to={isAdmin ? "/portal-manager" : "/dashboard"} className="flex items-center gap-3 group">
               <img
                 src="/cryptevid_logo.png"
                 alt="CRYPTEVID"
@@ -133,16 +131,22 @@ export const HorizontalNavbar: React.FC = () => {
             <div className="flex items-center gap-2.5 pl-3 border-l border-slate-200">
               <div className="hidden md:flex flex-col text-right">
                 <span className="text-xs font-bold leading-tight text-slate-900">
-                  {user?.name || 'Lead Investigator'}
+                  {user?.name || (user?.role === 'chief_investigator' ? 'Chief Investigator' : 'Lead Investigator')}
                 </span>
                 <span className={`text-[10px] font-mono uppercase px-1.5 py-0.5 rounded border mt-0.5 font-semibold ${
-                  user?.role === 'portal_manager'
-                    ? 'text-blue-700 bg-blue-50 border-blue-200'
-                    : user?.role === 'admin'
+                  user?.role === 'admin'
                     ? 'text-red-700 bg-red-50 border-red-200'
+                    : user?.role === 'chief_investigator'
+                    ? 'text-purple-700 bg-purple-50 border-purple-200'
                     : 'text-amber-700 bg-amber-50 border-amber-200'
                 }`}>
-                  {user?.role === 'portal_manager' ? 'PORTAL MANAGER' : (user?.role || 'Examiner')}
+                  {user?.role === 'admin'
+                    ? 'ADMINISTRATOR'
+                    : user?.role === 'chief_investigator'
+                    ? 'CHIEF INVESTIGATOR'
+                    : user?.role === 'readonly'
+                    ? 'COURT AUDITOR'
+                    : 'INVESTIGATOR'}
                 </span>
               </div>
               <button
@@ -167,7 +171,7 @@ export const HorizontalNavbar: React.FC = () => {
       </div>
 
       {/* Sub-header Context Bar: Active Case Dossier Breadcrumb (Visible only to casework investigators) */}
-      {!isManagerOrAdmin && (
+      {!isAdmin && (
         <div className="w-full px-5 sm:px-8 lg:px-12 py-1.5 text-xs font-mono border-t bg-slate-50 border-slate-200 text-slate-600">
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-2.5 truncate">
