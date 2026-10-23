@@ -657,4 +657,11 @@ export const portalManagerApi = {
   }
 };
 
+export const authApi = {
+  verifyPassword: async (password: string, email?: string) => {
+    const res = await api.post('/auth/verify-password', { password, email });
+    return res.data;
+  }
+};
+
 

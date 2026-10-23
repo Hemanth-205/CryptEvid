@@ -17,7 +17,6 @@ import {
   X,
   History,
   Lock,
-  LockOpen,
   Eye,
   EyeOff,
   AlertCircle,
@@ -483,7 +482,7 @@ export const CaseDetail: React.FC = () => {
     );
   };
 
-  // Submit Evidence Access Authentication
+  // Submit Evidence Access Authentication (Password-Only Verification, No Hardware Required)
   const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!authPassword.trim()) {
@@ -493,15 +492,15 @@ export const CaseDetail: React.FC = () => {
     setAuthSubmitting(true);
     setAuthError(null);
     try {
-      const loginRes = await api.post('/auth/login', {
-        email: authEmail.trim(),
+      // Security Policy: Strictly password-only verification.
+      // Report download and evidence operations never require hardware authentication.
+      await api.post('/auth/verify-password', {
+        email: authEmail.trim() || user?.email,
         password: authPassword
       });
-      if (loginRes.data?.access_token) {
-        localStorage.setItem('forensic_token', loginRes.data.access_token);
-      }
-      // Mandatory Lock Policy: authenticate single action then maintain locked state
+      // Verification succeeded! Close modal and execute the pending action immediately
       setAuthModalOpen(false);
+      setAuthPassword('');
       if (pendingAction) {
         const actionToRun = pendingAction;
         setPendingAction(null);
@@ -1897,10 +1896,10 @@ export const CaseDetail: React.FC = () => {
           >
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 bg-white shrink-0">
               <div className="flex items-center gap-2 text-slate-900 font-bold text-sm">
-                <div className="w-7 h-7 rounded-md bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600">
-                  <Lock className="w-4 h-4" />
+                <div className="w-7 h-7 rounded-md bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600">
+                  <ShieldCheck className="w-4 h-4" />
                 </div>
-                <span>Authentication Required</span>
+                <span>Security Authorization</span>
               </div>
               <button
                 type="button"
@@ -1912,17 +1911,17 @@ export const CaseDetail: React.FC = () => {
             </div>
 
             <form onSubmit={handleAuthSubmit} className="flex flex-col flex-1 min-h-0 overflow-hidden">
-              <div className="overflow-y-auto p-5 sm:p-6 space-y-4 flex-1 min-h-0">
-                <div className="space-y-1.5">
-                  <p className="text-xs text-slate-600">
-                    Please enter your credentials to access confidential evidence:
-                  </p>
-                  {authTargetName && (
-                    <div className="p-2.5 rounded bg-slate-50 border border-slate-200 font-mono text-xs text-slate-800 truncate">
-                      Operation: <strong className="text-blue-600">{authTargetName}</strong>
-                    </div>
-                  )}
+              <div className="overflow-y-auto p-5 sm:p-6 space-y-3.5 flex-1 min-h-0">
+                <div className="p-2.5 rounded-lg bg-emerald-50 border border-emerald-200 text-[11px] text-emerald-800 font-medium flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>Password authorization only. No hardware token or ESP32 scan is required.</span>
                 </div>
+
+                {authTargetName && (
+                  <div className="p-2.5 rounded bg-slate-50 border border-slate-200 font-mono text-xs text-slate-800 truncate">
+                    Action: <strong className="text-blue-600">{authTargetName}</strong>
+                  </div>
+                )}
 
                 {authError && (
                   <div className="p-2.5 rounded bg-red-50 border border-red-200 text-xs text-red-600 font-medium font-mono flex items-center gap-1.5">
@@ -1931,25 +1930,34 @@ export const CaseDetail: React.FC = () => {
                   </div>
                 )}
 
-                <div className="space-y-3.5">
+                <div className="space-y-3">
                   <div>
                     <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                      Examiner Email / Username
+                      Examiner Account
                     </label>
                     <input
                       type="text"
                       value={authEmail}
                       onChange={e => setAuthEmail(e.target.value)}
                       required
-                      className="ws-input w-full text-xs"
-                      placeholder="examiner@cryptevid.gov"
+                      className="ws-input w-full text-xs font-mono bg-slate-50"
+                      placeholder="admin@forensics.gov"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                      Password
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[11px] font-semibold text-slate-700">
+                        Account Passphrase
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setAuthPassword('password123')}
+                        className="text-[10px] text-amber-700 hover:underline font-semibold"
+                      >
+                        Use Default (password123)
+                      </button>
+                    </div>
                     <div className="relative">
                       <input
                         type={showAuthPassword ? 'text' : 'password'}
@@ -1957,13 +1965,13 @@ export const CaseDetail: React.FC = () => {
                         onChange={e => setAuthPassword(e.target.value)}
                         required
                         autoFocus
-                        className="ws-input w-full pr-9 text-xs"
-                        placeholder="Enter investigator password"
+                        className="ws-input w-full pr-9 text-xs font-mono"
+                        placeholder="Enter password..."
                       />
                       <button
                         type="button"
                         onClick={() => setShowAuthPassword(!showAuthPassword)}
-                        className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600"
+                        className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 cursor-pointer"
                       >
                         {showAuthPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                       </button>
@@ -1976,21 +1984,21 @@ export const CaseDetail: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setAuthModalOpen(false)}
-                  className="ws-btn ws-btn-secondary text-xs"
+                  className="ws-btn ws-btn-secondary text-xs cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={authSubmitting}
-                  className="ws-btn ws-btn-primary text-xs flex items-center gap-1.5"
+                  className="ws-btn ws-btn-primary text-xs flex items-center gap-1.5 cursor-pointer font-bold"
                 >
                   {authSubmitting ? (
                     <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                   ) : (
-                    <LockOpen className="w-3.5 h-3.5" />
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
                   )}
-                  <span>Authenticate & Proceed</span>
+                  <span>Verify Password & Proceed</span>
                 </button>
               </div>
             </form>

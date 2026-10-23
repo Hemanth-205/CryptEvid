@@ -11,9 +11,13 @@ import {
   ShieldCheck,
   ExternalLink,
   Lock,
-  FileText
+  FileText,
+  AlertCircle,
+  X,
+  Eye,
+  EyeOff
 } from 'lucide-react';
-import { caseApi, reportApi } from '../services/api';
+import api, { caseApi, reportApi } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { formatIsoDateSafe } from '../utils/date';
 import type { Case } from '../types';
@@ -91,7 +95,52 @@ export const ReportsPage: React.FC = () => {
 
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
-  const handleDownloadReport = async (reportId: string, caseNumber: string, version: number) => {
+  // Security Password Authorization State (Report Download - Password Only, No Hardware)
+  const [authModalOpen, setAuthModalOpen] = useState<boolean>(false);
+  const [pendingReport, setPendingReport] = useState<{ id: string; caseNumber: string; version: number } | null>(null);
+  const [authPassword, setAuthPassword] = useState<string>('');
+  const [showAuthPassword, setShowAuthPassword] = useState<boolean>(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [authSubmitting, setAuthSubmitting] = useState<boolean>(false);
+
+  const requestDownloadReport = (reportId: string, caseNumber: string, version: number) => {
+    setPendingReport({ id: reportId, caseNumber, version });
+    setAuthPassword('');
+    setAuthError(null);
+    setAuthModalOpen(true);
+  };
+
+  const handleAuthSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!authPassword.trim()) {
+      setAuthError('Password is required');
+      return;
+    }
+    setAuthSubmitting(true);
+    setAuthError(null);
+    try {
+      // Security Policy: Strictly password-only verification.
+      // Report download never requires hardware authentication.
+      await api.post('/auth/verify-password', {
+        email: user?.email || 'admin@forensics.gov',
+        password: authPassword
+      });
+
+      const rep = pendingReport;
+      setAuthModalOpen(false);
+      setAuthPassword('');
+      if (rep) {
+        setPendingReport(null);
+        await executeDownload(rep.id, rep.caseNumber, rep.version);
+      }
+    } catch (err: any) {
+      setAuthError(err.response?.data?.detail || 'Authentication failed. Incorrect password.');
+    } finally {
+      setAuthSubmitting(false);
+    }
+  };
+
+  const executeDownload = async (reportId: string, caseNumber: string, version: number) => {
     setDownloadingId(reportId);
     try {
       const blobData = await reportApi.downloadReportBlob(reportId);
@@ -280,7 +329,7 @@ export const ReportsPage: React.FC = () => {
                       <button
                         type="button"
                         disabled={downloadingId === report.report_id}
-                        onClick={() => handleDownloadReport(report.report_id, report.case_number, report.version)}
+                        onClick={() => requestDownloadReport(report.report_id, report.case_number, report.version)}
                         className="ws-btn ws-btn-secondary text-xs py-1 px-2.5 inline-flex items-center gap-1.5 text-blue-700 border-blue-200 hover:bg-blue-50 font-semibold cursor-pointer disabled:opacity-50"
                         title="Download cryptographically sealed PDF dossier"
                       >
@@ -386,6 +435,125 @@ export const ReportsPage: React.FC = () => {
                     <FileDown className="w-3.5 h-3.5" />
                   )}
                   <span>{compiling ? 'Compiling PDF...' : 'Seal & Generate PDF'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Security Password Authorization Modal (Password-Only Verification, No Hardware) */}
+      {authModalOpen && createPortal(
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs"
+          onClick={() => setAuthModalOpen(false)}
+        >
+          <div 
+            className="bg-white border border-slate-200 rounded-xl shadow-2xl w-full max-w-md overflow-hidden animate-scale-up"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 bg-white">
+              <div className="flex items-center gap-2 text-slate-900 font-bold text-sm">
+                <div className="w-7 h-7 rounded-md bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600">
+                  <ShieldCheck className="w-4 h-4" />
+                </div>
+                <span>Security Authorization</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAuthModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-md cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleAuthSubmit} className="p-5 space-y-4">
+              <div className="p-2.5 rounded-lg bg-emerald-50 border border-emerald-200 text-[11px] text-emerald-800 font-medium flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>Password authorization only. No hardware token or ESP32 scan is required.</span>
+              </div>
+
+              {pendingReport && (
+                <div className="p-2.5 rounded bg-slate-50 border border-slate-200 font-mono text-xs text-slate-800 truncate">
+                  Dossier: <strong className="text-blue-600">Case {pendingReport.caseNumber} (v{pendingReport.version})</strong>
+                </div>
+              )}
+
+              {authError && (
+                <div className="p-2.5 rounded bg-red-50 border border-red-200 text-xs text-red-600 font-medium font-mono flex items-center gap-1.5">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>{authError}</span>
+                </div>
+              )}
+
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    Examiner Account
+                  </label>
+                  <input
+                    type="text"
+                    disabled
+                    value={user?.email || 'admin@forensics.gov'}
+                    className="ws-input w-full text-xs font-mono bg-slate-100 text-slate-600 cursor-not-allowed"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[11px] font-semibold text-slate-700">
+                      Account Passphrase
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setAuthPassword('password123')}
+                      className="text-[10px] text-amber-700 hover:underline font-semibold"
+                    >
+                      Use Default (password123)
+                    </button>
+                  </div>
+                  <div className="relative">
+                    <input
+                      type={showAuthPassword ? 'text' : 'password'}
+                      value={authPassword}
+                      onChange={e => setAuthPassword(e.target.value)}
+                      required
+                      autoFocus
+                      className="ws-input w-full pr-9 text-xs font-mono"
+                      placeholder="Enter password..."
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowAuthPassword(!showAuthPassword)}
+                      className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 cursor-pointer"
+                    >
+                      {showAuthPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setAuthModalOpen(false)}
+                  className="ws-btn ws-btn-secondary text-xs cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={authSubmitting}
+                  className="ws-btn ws-btn-primary text-xs flex items-center gap-1.5 cursor-pointer font-bold"
+                >
+                  {authSubmitting ? (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                  )}
+                  <span>Verify Password & Download</span>
                 </button>
               </div>
             </form>

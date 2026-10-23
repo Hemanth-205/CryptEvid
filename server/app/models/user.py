@@ -60,6 +60,11 @@ class UserLogin(BaseModel):
     email: str = Field(..., description="Username or Email address")
     password: str
     hardware_ticket_id: Optional[str] = Field(None, description="Stage 1 Hardware Authentication challenge ticket")
+    purpose: Optional[str] = Field(None, description="Optional purpose e.g. action_auth")
+
+class VerifyPasswordRequest(BaseModel):
+    email: Optional[str] = Field(None, description="Investigator username/email")
+    password: str = Field(..., description="Access passphrase to verify")
 
 class HardwareAuthPayload(BaseModel):
     deviceId: str
