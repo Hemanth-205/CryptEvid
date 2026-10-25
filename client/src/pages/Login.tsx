@@ -152,30 +152,6 @@ export const Login: React.FC = () => {
   const [regRole, setRegRole] = useState<'investigator' | 'admin' | 'readonly'>('investigator');
   const [showRegPassword, setShowRegPassword] = useState(false);
 
-  // Backend API URL Customization
-  const [showApiConfig, setShowApiConfig] = useState(false);
-  const [customApiUrl, setCustomApiUrl] = useState(
-    typeof window !== 'undefined' ? localStorage.getItem('forensic_api_url') || '' : ''
-  );
-  const [apiSaved, setApiSaved] = useState(false);
-
-  const handleSaveApiUrl = (e: React.FormEvent) => {
-    e.preventDefault();
-    const cleanUrl = customApiUrl.trim().replace(/\/$/, '');
-    if (cleanUrl) {
-      const formatted = cleanUrl.endsWith('/api') ? cleanUrl : `${cleanUrl}/api`;
-      localStorage.setItem('forensic_api_url', formatted);
-      setCustomApiUrl(formatted);
-    } else {
-      localStorage.removeItem('forensic_api_url');
-      setCustomApiUrl('');
-    }
-    setApiSaved(true);
-    setTimeout(() => {
-      setApiSaved(false);
-      window.location.reload();
-    }, 500);
-  };
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -646,7 +622,6 @@ export const Login: React.FC = () => {
                   type="button"
                   onClick={() => {
                     setEmail("admin@forensics.gov");
-                    setPassword("password123");
                   }}
                   className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
                     email.toLowerCase() === "admin@forensics.gov"
@@ -667,7 +642,6 @@ export const Login: React.FC = () => {
                   type="button"
                   onClick={() => {
                     setEmail("chief@forensics.gov");
-                    setPassword("password123");
                   }}
                   className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
                     email.toLowerCase() === "chief@forensics.gov"
@@ -714,7 +688,7 @@ export const Login: React.FC = () => {
                     type={showPassword ? 'text' : 'password'}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Enter password (e.g. password123)"
+                    placeholder="Enter access passphrase"
                     className="ws-input w-full pr-10 text-xs font-mono"
                     required
                   />
@@ -726,18 +700,6 @@ export const Login: React.FC = () => {
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
-              </div>
-
-              {/* Quick Fill Credentials button */}
-              <div className="flex items-center justify-between text-[11px] text-slate-500 pt-0.5">
-                <span>Default Passphrase:</span>
-                <button
-                  type="button"
-                  onClick={() => setPassword('password123')}
-                  className="text-amber-700 font-semibold hover:underline"
-                >
-                  Use Default (password123)
-                </button>
               </div>
 
               <button
@@ -892,65 +854,6 @@ export const Login: React.FC = () => {
           </form>
         )}
 
-        {/* Cloud Backend Connection Settings */}
-        <div className="pt-2 border-t border-slate-100">
-          <div className="flex items-center justify-between">
-            <button
-              type="button"
-              onClick={() => setShowApiConfig(!showApiConfig)}
-              className="text-[11px] text-slate-400 hover:text-slate-600 font-mono flex items-center gap-1 cursor-pointer"
-            >
-              <span>API Endpoint:</span>
-              <span className="font-semibold text-slate-600 underline truncate max-w-[200px]">
-                {getApiBaseUrl()}
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowApiConfig(!showApiConfig)}
-              className="text-[10px] text-blue-600 hover:underline font-mono cursor-pointer"
-            >
-              {showApiConfig ? 'Hide' : 'Configure'}
-            </button>
-          </div>
-
-          {showApiConfig && (
-            <form onSubmit={handleSaveApiUrl} className="mt-2.5 p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-2">
-              <label className="block text-[11px] font-bold text-slate-700">
-                Backend API URL (Render / Railway / Custom)
-              </label>
-              <input
-                type="text"
-                value={customApiUrl}
-                onChange={(e) => setCustomApiUrl(e.target.value)}
-                placeholder="https://cryptevid-final.onrender.com"
-                className="ws-input w-full text-xs font-mono"
-              />
-              <p className="text-[10px] text-slate-500">
-                Default: <span className="font-mono text-slate-700 font-semibold">https://cryptevid-final.onrender.com</span>
-              </p>
-              <div className="flex justify-end gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    localStorage.removeItem('forensic_api_url');
-                    setCustomApiUrl('');
-                    window.location.reload();
-                  }}
-                  className="ws-btn ws-btn-secondary py-1 px-2 text-[11px]"
-                >
-                  Reset Default
-                </button>
-                <button
-                  type="submit"
-                  className="ws-btn ws-btn-primary py-1 px-3 text-[11px]"
-                >
-                  {apiSaved ? 'Saved & Reloading...' : 'Save & Connect'}
-                </button>
-              </div>
-            </form>
-          )}
-        </div>
 
         {/* Footer info & Mode toggle */}
         <div className="pt-3 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500">

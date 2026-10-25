@@ -1946,17 +1946,10 @@ export const CaseDetail: React.FC = () => {
                   </div>
 
                   <div>
-                    <div className="flex items-center justify-between mb-1">
+                    <div className="mb-1">
                       <label className="text-[11px] font-semibold text-slate-700">
                         Account Passphrase
                       </label>
-                      <button
-                        type="button"
-                        onClick={() => setAuthPassword('password123')}
-                        className="text-[10px] text-amber-700 hover:underline font-semibold"
-                      >
-                        Use Default (password123)
-                      </button>
                     </div>
                     <div className="relative">
                       <input
