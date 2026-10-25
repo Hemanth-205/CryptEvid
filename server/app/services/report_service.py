@@ -123,7 +123,7 @@ class ForensicPDF(FPDF):
 
     def section_heading(self, number: int, title: str):
         """Renders an official section header with gold accent and navy typography."""
-        self.check_space(24)
+        self.check_space(28)
         self.ln(3)
         y = self.get_y()
 
@@ -132,10 +132,10 @@ class ForensicPDF(FPDF):
         self.rect(12, y + 0.5, 2.5, 6, "F")
 
         self.set_xy(16.5, y)
-        self.set_font("helvetica", "B", 10.5)
+        self.set_font("helvetica", "B", 10.0)
         self.set_text_color(11, 27, 61)  # Deep Navy
         full_title = f"{number}. {title.upper()}"
-        self.cell(169.5, 7, _safe_text(full_title), new_x="LMARGIN", new_y="NEXT")
+        self.cell(181.5, 7, _safe_text(full_title), new_x="LMARGIN", new_y="NEXT")
 
         # Subtle gold underline
         self.set_draw_color(226, 208, 160)
@@ -221,8 +221,32 @@ class ForensicPDF(FPDF):
             i += cols
         self.ln(2)
 
+    def fit_text_to_width(self, text: str, max_width: float, padding: float = 2.0) -> str:
+        """
+        Dynamically truncates and appends ellipsis to ensure text strictly fits within cell boundaries.
+        Guarantees zero text overflow past column borders or the physical page margins.
+        """
+        avail = max_width - padding
+        clean = _safe_text(text)
+        if self.get_string_width(clean) <= avail:
+            return clean
+        ellipsis = "..."
+        ellipsis_w = self.get_string_width(ellipsis)
+        if avail <= ellipsis_w:
+            return ""
+        low, high, best = 0, len(clean), ""
+        while low <= high:
+            mid = (low + high) // 2
+            cand = clean[:mid] + ellipsis
+            if self.get_string_width(cand) <= avail:
+                best = cand
+                low = mid + 1
+            else:
+                high = mid - 1
+        return best
+
     def _draw_table_header_cells(self, headers: List[str], widths: List[float], aligns: Optional[List[str]] = None):
-        """Draws the header row of a table."""
+        """Draws the header row of a table with strict boundary clipping."""
         self.set_font("helvetica", "B", 7)
         self.set_fill_color(241, 245, 249)
         self.set_draw_color(203, 213, 225)
@@ -231,12 +255,14 @@ class ForensicPDF(FPDF):
 
         self.set_x(12)
         for idx, h in enumerate(headers):
+            w = widths[idx]
             al = aligns[idx] if aligns and idx < len(aligns) else "L"
             is_last = (idx == len(headers) - 1)
+            h_text = self.fit_text_to_width(h, w, padding=1.8)
             if is_last:
-                self.cell(widths[idx], 5.5, _safe_text(h), border=1, fill=True, align=al, new_x="LMARGIN", new_y="NEXT")
+                self.cell(w, 5.5, h_text, border=1, fill=True, align=al, new_x="LMARGIN", new_y="NEXT")
             else:
-                self.cell(widths[idx], 5.5, _safe_text(h), border=1, fill=True, align=al)
+                self.cell(w, 5.5, h_text, border=1, fill=True, align=al)
 
     def render_table(
         self,
@@ -247,7 +273,8 @@ class ForensicPDF(FPDF):
         status_rules: Optional[Dict[int, Dict[str, Tuple[int, int, int]]]] = None
     ):
         """
-        Renders a cleanly formatted table with auto header repeating upon page splits.
+        Renders a cleanly formatted table with auto header repeating upon page splits
+        and strict cell text boundary containment.
         """
         self.check_space(14)
         self._draw_table_header_cells(headers, widths, aligns)
@@ -266,7 +293,6 @@ class ForensicPDF(FPDF):
             self.current_table_headers = None
             return
 
-        self.set_font("helvetica", "", 7)
         fill = False
         for row in rows:
             self.check_space(6.5)
@@ -292,12 +318,7 @@ class ForensicPDF(FPDF):
                 self.set_fill_color(248, 250, 252) if fill else self.set_fill_color(255, 255, 255)
                 self.set_draw_color(226, 232, 240)
 
-                # Truncate text if needed to prevent multi-line overflow inside standard cell
-                cell_val = _safe_text(cell)
-                # Keep long cell content readable
-                max_chars = int(w * 1.8)
-                if len(cell_val) > max_chars:
-                    cell_val = cell_val[:max_chars - 3] + "..."
+                cell_val = self.fit_text_to_width(str(cell), w, padding=2.0)
 
                 if is_last:
                     self.cell(w, 5.0, cell_val, border=1, fill=True, align=al, new_x="LMARGIN", new_y="NEXT")
@@ -556,7 +577,7 @@ class ForensicReportService:
         )
 
         ev_headers = ["Evidence ID", "Filename", "MIME / Type", "Size", "Acquisition Time (UTC)", "Collector", "Status"]
-        ev_widths = [24, 38, 26, 18, 32, 26, 22]
+        ev_widths = [22, 40, 24, 18, 32, 26, 24]
         ev_aligns = ["L", "L", "L", "R", "C", "L", "C"]
         ev_rows = []
 
@@ -667,7 +688,7 @@ class ForensicReportService:
 
         if backups_list:
             bk_headers = ["Backup Ref ID", "Exhibit Filename", "Version", "Preservation Timestamp", "Backup SHA-256", "Status"]
-            bk_widths = [32, 40, 16, 36, 42, 20]
+            bk_widths = [32, 38, 16, 34, 44, 22]
             bk_aligns = ["L", "L", "C", "C", "L", "C"]
             bk_rows = []
 
@@ -705,8 +726,8 @@ class ForensicReportService:
         )
 
         cust_headers = ["Timestamp (UTC)", "Action Performed", "Investigator / Actor", "Evidence ID", "Integrity / Remarks"]
-        cust_widths = [32, 44, 34, 26, 50]
-        cust_aligns = ["C", "L", "L", "L", "L"]
+        cust_widths = [26, 36, 28, 20, 76]
+        cust_aligns = ["C", "L", "L", "C", "L"]
         cust_rows = []
 
         for cust in custody_list[:35]:
@@ -734,7 +755,7 @@ class ForensicReportService:
         )
 
         act_headers = ["Timestamp (UTC)", "Event Category", "Terminal / IP", "Actor / ID", "Outcome", "Action Details"]
-        act_widths = [32, 34, 30, 28, 20, 42]
+        act_widths = [26, 32, 28, 26, 18, 56]
         act_aligns = ["C", "L", "L", "L", "C", "L"]
         act_rows = []
 
@@ -765,7 +786,7 @@ class ForensicReportService:
 
         if security_events_list:
             sec_headers = ["Event ID", "Severity", "Timestamp (UTC)", "Event Type", "Source IP / Device", "Trigger Reason"]
-            sec_widths = [24, 20, 32, 42, 32, 36]
+            sec_widths = [22, 18, 28, 36, 30, 52]
             sec_aligns = ["L", "C", "C", "L", "L", "L"]
             sec_rows = []
 

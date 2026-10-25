@@ -437,15 +437,32 @@ export const CaseDetail: React.FC = () => {
     setDownloadingReport(true);
     setReportSuccess(null);
     try {
-      const res = await reportApi.generateCaseReport(caseId, {
-        title: `Official Forensic Investigation Dossier - ${caseData?.case_number || 'Case'}`,
-        classification: 'CONFIDENTIAL // LAW ENFORCEMENT SENSITIVE'
-      });
+      let reportId = '';
+      let reportVersion = 1;
+      let reportHash = '';
 
-      // Extract report ID and metadata from response
-      const reportId = res?.report_id || res?._id || res?.report?.report_id || res?.report?._id;
-      const reportVersion = res?.version || res?.report?.version || 1;
-      const reportHash = res?.sha256_hash || res?.report?.sha256_hash || '';
+      // Check if a report for this case already exists to prevent redundant duplicate records
+      try {
+        const existing = await reportApi.getCaseReports(caseId);
+        if (existing?.reports && existing.reports.length > 0) {
+          const latest = existing.reports[0];
+          reportId = latest.report_id || latest._id;
+          reportVersion = latest.version || 1;
+          reportHash = latest.sha256_hash || '';
+        }
+      } catch (e) {
+        console.warn('Could not check existing reports, will compile fresh', e);
+      }
+
+      if (!reportId) {
+        const res = await reportApi.generateCaseReport(caseId, {
+          title: `Official Forensic Investigation Dossier - ${caseData?.case_number || 'Case'}`,
+          classification: 'CONFIDENTIAL // LAW ENFORCEMENT SENSITIVE'
+        });
+        reportId = res?.report_id || res?._id || res?.report?.report_id || res?.report?._id;
+        reportVersion = res?.version || res?.report?.version || 1;
+        reportHash = res?.sha256_hash || res?.report?.sha256_hash || '';
+      }
 
       if (reportId) {
         // Download binary PDF blob directly via authenticated axios client

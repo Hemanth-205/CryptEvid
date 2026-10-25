@@ -118,25 +118,31 @@ async def list_all_reports(current_user: Dict[str, Any] = Depends(get_current_us
         allowed_case_ids = await get_accessible_case_ids(db, current_user)
         query = {"case_id": {"$in": allowed_case_ids}}
 
-    cursor = db["forensic_reports"].find(query).sort("generated_at", -1)
-    docs = await cursor.to_list(length=200)
+    cursor = db["forensic_reports"].find(query).sort([("version", -1), ("generated_at", -1)])
+    docs = await cursor.to_list(length=300)
+
+    # Deduplicate reports: keep only the latest version per case to avoid duplicate entries in the master registry
+    seen_cases = set()
     reports = []
     for d in docs:
-        rep_id = str(d["_id"])
-        reports.append({
-            "report_id": rep_id,
-            "case_id": str(d["case_id"]),
-            "case_number": d.get("case_number", "CASE"),
-            "title": d.get("title", "Forensic Report"),
-            "version": d.get("version", 1),
-            "classification": d.get("classification", "CONFIDENTIAL"),
-            "file_size": d.get("file_size", 0),
-            "sha256_hash": d.get("sha256_hash", ""),
-            "generated_by": str(d.get("generated_by", "")),
-            "generated_by_name": d.get("generated_by_name", "Operator"),
-            "generated_at": d.get("generated_at"),
-            "download_url": f"/api/reports/{rep_id}/download"
-        })
+        cid = str(d["case_id"])
+        if cid not in seen_cases:
+            seen_cases.add(cid)
+            rep_id = str(d["_id"])
+            reports.append({
+                "report_id": rep_id,
+                "case_id": cid,
+                "case_number": d.get("case_number", "CASE"),
+                "title": d.get("title", "Forensic Report"),
+                "version": d.get("version", 1),
+                "classification": d.get("classification", "CONFIDENTIAL"),
+                "file_size": d.get("file_size", 0),
+                "sha256_hash": d.get("sha256_hash", ""),
+                "generated_by": str(d.get("generated_by", "")),
+                "generated_by_name": d.get("generated_by_name", "Operator"),
+                "generated_at": d.get("generated_at"),
+                "download_url": f"/api/reports/{rep_id}/download"
+            })
     return {"total": len(reports), "reports": reports}
 
 @router.get("/reports/{report_id}", response_model=ForensicReportResponse)

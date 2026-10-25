@@ -57,7 +57,18 @@ export const ReportsPage: React.FC = () => {
     setLoading(true);
     try {
       const res = await reportApi.getAllReports();
-      setReports(res.reports || []);
+      const rawReports: any[] = res.reports || [];
+      // Deduplicate by case_id / case_number to guarantee no duplicate rows appear
+      const seen = new Set<string>();
+      const deduped: any[] = [];
+      for (const r of rawReports) {
+        const key = r.case_id || r.case_number || r.report_id;
+        if (!seen.has(key)) {
+          seen.add(key);
+          deduped.push(r);
+        }
+      }
+      setReports(deduped);
     } catch (err) {
       console.error('Failed to load court reports', err);
     } finally {
