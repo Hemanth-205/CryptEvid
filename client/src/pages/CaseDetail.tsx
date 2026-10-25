@@ -149,6 +149,7 @@ export const CaseDetail: React.FC = () => {
 
   // Verification & Custody & Inspector modals
   const [verifyingId, setVerifyingId] = useState<string | null>(null);
+  const [evidenceError, setEvidenceError] = useState<string | null>(null);
   const [selectedVerify, setSelectedVerify] = useState<EvidenceVerifyResult | null>(null);
   const [custodyEvidence, setCustodyEvidence] = useState<Evidence | null>(null);
   const [custodyEvents, setCustodyEvents] = useState<CustodyEvent[]>([]);
@@ -562,12 +563,13 @@ export const CaseDetail: React.FC = () => {
   // Verify Evidence
   const handleVerifyEvidence = async (evidenceId: string) => {
     setVerifyingId(evidenceId);
+    setEvidenceError(null);
     try {
       const result = await evidenceApi.verifyEvidence(evidenceId);
       setSelectedVerify(result);
       fetchCaseDetails();
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Verification request failed.');
+      setEvidenceError(err.response?.data?.detail || 'Verification request failed.');
     } finally {
       setVerifyingId(null);
     }
@@ -1040,6 +1042,22 @@ export const CaseDetail: React.FC = () => {
       {/* TAB 2: EVIDENCE VAULT */}
       {activeTab === 'evidence' && (
         <div className="space-y-4">
+          {evidenceError && (
+            <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-xs font-mono text-rose-800 flex items-center justify-between shadow-2xs animate-fade-in-up">
+              <div className="flex items-center gap-2.5">
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>{evidenceError}</span>
+              </div>
+              <button 
+                type="button" 
+                onClick={() => setEvidenceError(null)} 
+                className="text-rose-500 hover:text-rose-800 p-1"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
           <div className="ws-panel p-3 flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <FileCheck className="w-4 h-4 text-blue-500" />
