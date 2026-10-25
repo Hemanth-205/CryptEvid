@@ -152,18 +152,6 @@ Macro/
 
 ---
 
-## Demo Accounts & Hardware Credentials
-
-The database automatically initializes default roles and simulated hardware credentials:
-
-| Role | Email | Password | RFID Badge UID | Fingerprint ID |
-| :--- | :--- | :--- | :--- | :--- |
-| **Administrator** | `admin@forensics.gov` | `password123` / `admin123` | `04A1B2C3` | `12` |
-| **Investigator** | `investigator@forensics.gov` | `password123` | `B1C2D3E4` | `15` |
-| **Auditor (Read-Only)** | `viewer@forensics.gov` | `password123` | `C3D4E5F6` | `20` |
-
----
-
 ## Automated Verification & Testing
 
 To run the complete end-to-end verification suite:
