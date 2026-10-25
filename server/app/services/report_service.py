@@ -61,14 +61,13 @@ class ForensicPDF(FPDF):
         self.case_number = case_number
         self.report_id_str = report_id_str
         self.logo_path = logo_path
-        self.suppressed_pages = [1]
         self.current_table_headers = None
         self.current_table_widths = None
         self.current_table_aligns = None
 
     def header(self):
-        # Do not render header on Cover Pages / Dividers
-        if self.page_no() in self.suppressed_pages:
+        # Do not render header on Cover Page (Page 1)
+        if self.page_no() == 1:
             return
 
         self.set_xy(12, 7)
@@ -95,8 +94,8 @@ class ForensicPDF(FPDF):
         self.set_y(16)
 
     def footer(self):
-        # Do not render footer on Cover Pages / Dividers
-        if self.page_no() in self.suppressed_pages:
+        # Do not render footer on Cover Page (Page 1)
+        if self.page_no() == 1:
             return
 
         self.set_y(-14)
@@ -161,60 +160,46 @@ class ForensicPDF(FPDF):
         self.ln(2.5)
 
     def callout_box(self, text: str, title: Optional[str] = None, badge: str = "INFO", badge_color=(15, 23, 42)):
-        """Renders a styled callout box with dynamic height measurement to prevent overflow and misalignment."""
-        clean_badge = str(badge).replace("RiskLevel.", "")
-        title_str = f"[{clean_badge}] {title}" if title else None
-
-        # Measure exact rendered line count using fpdf2 dry_run
-        self.set_font("helvetica", "", 7.5)
-        try:
-            lines = self.multi_cell(176, 3.8, _safe_text(text), dry_run=True, output="LINES")
-            lines_count = len(lines) if lines else 1
-        except Exception:
-            lines_count = max(1, len(text) // 85 + 1)
-
-        title_h = 5.5 if title_str else 0.0
-        text_h = lines_count * 3.8
-        box_h = title_h + text_h + 5.0
-
-        self.check_space(box_h + 4.0)
+        """Renders a styled callout box with a colored left accent border."""
+        self.check_space(20)
         start_y = self.get_y()
-
-        # Background box
         self.set_fill_color(248, 250, 252)
         self.set_draw_color(226, 232, 240)
         self.set_line_width(0.2)
+
+        clean_badge = str(badge).replace("RiskLevel.", "")
+        lines = len(text) // 95 + 2
+        box_h = max(14, lines * 4.2 + (7 if title else 4))
         self.rect(12, start_y, 186, box_h, "DF")
 
-        # Accent bar on left
+        # Accent border
         self.set_fill_color(*badge_color)
-        self.rect(12, start_y, 2.5, box_h, "F")
+        self.rect(12, start_y, 2, box_h, "F")
 
-        curr_y = start_y + 2.5
-        if title_str:
-            self.set_xy(16.5, curr_y)
+        self.set_xy(16, start_y + 2)
+        if title:
             self.set_font("helvetica", "B", 8)
             self.set_text_color(*badge_color)
-            self.cell(176, 4.5, _safe_text(title_str), new_x="LMARGIN", new_y="NEXT")
-            curr_y += 5.0
+            self.cell(178, 4.5, _safe_text(f"[{clean_badge}] {title}"), new_x="LMARGIN", new_y="NEXT")
+            self.set_x(16)
 
-        self.set_xy(16.5, curr_y)
         self.set_font("helvetica", "", 7.5)
         self.set_text_color(51, 65, 85)
-        self.multi_cell(176, 3.8, _safe_text(text))
-        self.set_y(start_y + box_h + 3.0)
+        self.multi_cell(178, 3.8, _safe_text(text))
+        self.set_y(start_y + box_h + 3)
 
     def key_value_grid(self, pairs: List[Tuple[str, str]], cols: int = 2):
-        """Renders a structured key-value property grid without overflow or overlap."""
-        col_w = 93.0 if cols == 2 else 186.0
-        lbl_w = 38.0 if cols == 2 else 48.0
+        """Renders a structured key-value property grid without overflow."""
+        self.check_space(len(pairs) * 4)
+        col_w = 93 if cols == 2 else 186
+        lbl_w = 34 if cols == 2 else 45
         val_w = col_w - lbl_w
 
         i = 0
         while i < len(pairs):
-            self.check_space(6.5)
+            self.check_space(6)
             row_pairs = pairs[i:i+cols]
-            start_x = 12.0
+            start_x = 12
             for lbl, val in row_pairs:
                 self.set_x(start_x)
                 self.set_font("helvetica", "B", 7.5)
@@ -223,6 +208,7 @@ class ForensicPDF(FPDF):
 
                 self.set_font("helvetica", "", 7.5)
                 self.set_text_color(15, 23, 42)
+                # Ensure text width fits cleanly inside val_w - 2 mm
                 clean_val = _safe_text(val)
                 avail_w = val_w - 2.5
                 if self.get_string_width(clean_val) > avail_w:
@@ -233,7 +219,7 @@ class ForensicPDF(FPDF):
                 start_x += col_w
             self.ln(4.8)
             i += cols
-        self.ln(2.0)
+        self.ln(2)
 
     def _draw_table_header_cells(self, headers: List[str], widths: List[float], aligns: Optional[List[str]] = None):
         """Draws the header row of a table."""
@@ -306,13 +292,12 @@ class ForensicPDF(FPDF):
                 self.set_fill_color(248, 250, 252) if fill else self.set_fill_color(255, 255, 255)
                 self.set_draw_color(226, 232, 240)
 
-                # Trim text to exact pixel width with ellipsis if wider than cell
+                # Truncate text if needed to prevent multi-line overflow inside standard cell
                 cell_val = _safe_text(cell)
-                avail_w = w - 2.5
-                if self.get_string_width(cell_val) > avail_w:
-                    while len(cell_val) > 3 and self.get_string_width(cell_val + "...") > avail_w:
-                        cell_val = cell_val[:-1]
-                    cell_val = cell_val + "..."
+                # Keep long cell content readable
+                max_chars = int(w * 1.8)
+                if len(cell_val) > max_chars:
+                    cell_val = cell_val[:max_chars - 3] + "..."
 
                 if is_last:
                     self.cell(w, 5.0, cell_val, border=1, fill=True, align=al, new_x="LMARGIN", new_y="NEXT")
@@ -411,127 +396,78 @@ class ForensicReportService:
         pdf.alias_nb_pages()
 
         # =========================================================================
-        # PAGE 1: MASTER FORENSIC EXAMINATION REPORT COVER PAGE
+        # PAGE 1: COVER PAGE (STRICT FIDELITY TO REFERENCE DESIGN)
         # =========================================================================
         pdf.set_auto_page_break(False)
         pdf.add_page()
 
-        # Top-left geometric accent: Deep Navy and Metallic Gold
-        pdf.set_fill_color(11, 27, 61)
-        pdf.polygon([(0, 0), (60, 0), (0, 60)], "F")
-        pdf.set_fill_color(184, 134, 11)
-        pdf.polygon([(60, 0), (66, 0), (0, 66), (0, 60)], "F")
+        # Overlay reference background template
+        if os.path.exists(COVER_TEMPLATE_PATH):
+            pdf.image(COVER_TEMPLATE_PATH, x=0, y=0, w=210, h=297)
+        else:
+            # High-fidelity programmatic fallback if asset not present
+            pdf.set_fill_color(254, 252, 254)
+            pdf.rect(0, 0, 210, 297, "F")
+            # Accent triangle top-left
+            pdf.set_fill_color(11, 27, 61)
+            pdf.polygon([(0, 0), (65, 0), (0, 65)], "F")
+            pdf.set_fill_color(184, 134, 11)
+            pdf.polygon([(65, 0), (70, 0), (0, 70), (0, 65)], "F")
 
-        # Bottom-right geometric accent: Deep Navy and Metallic Gold
-        pdf.set_fill_color(11, 27, 61)
-        pdf.polygon([(210, 297), (150, 297), (210, 237)], "F")
-        pdf.set_fill_color(184, 134, 11)
-        pdf.polygon([(150, 297), (144, 297), (210, 231), (210, 237)], "F")
+        # Dynamic Case ID centered
+        # Format: "Case ID: " in Dark Navy, "{case_num}" in Metallic Gold
+        pdf.set_font("helvetica", "B", 14)
+        lbl_text = "Case ID: "
+        val_text = case_num or "Not available"
+        w_lbl = pdf.get_string_width(lbl_text)
+        w_val = pdf.get_string_width(val_text)
+        total_w = w_lbl + w_val
+        start_x = (210 - total_w) / 2
 
-        # Centered Platform Logo
-        if os.path.exists(LOGO_PATH):
-            try:
-                pdf.image(LOGO_PATH, x=75, y=26, w=60)
-            except Exception:
-                pass
-
-        # Platform Subtitle
-        pdf.set_xy(15, 68)
-        pdf.set_font("helvetica", "B", 8)
-        pdf.set_text_color(100, 116, 139)
-        pdf.cell(180, 5, "SECURE DIGITAL EVIDENCE & FORENSIC INTELLIGENCE PLATFORM", align="C")
-
-        # Master Document Title
-        pdf.set_xy(15, 82)
-        pdf.set_font("helvetica", "B", 18)
+        pdf.set_xy(start_x, 154)
         pdf.set_text_color(11, 27, 61)  # Deep Navy
-        pdf.cell(180, 8, "DIGITAL EVIDENCE FORENSIC REPORT", align="C")
-
-        pdf.set_xy(15, 91)
-        pdf.set_font("helvetica", "B", 10.5)
+        pdf.write(7, lbl_text)
         pdf.set_text_color(184, 134, 11)  # Metallic Gold
-        pdf.cell(180, 6, "STATUTORY COURT-ADMISSIBLE FORENSIC AUDIT DOSSIER", align="C")
+        pdf.write(7, val_text)
 
-        # Gold Accent Divider
-        pdf.set_draw_color(184, 134, 11)
-        pdf.set_line_width(0.6)
-        pdf.line(32, 103, 178, 103)
-
-        # Case Highlights Card
-        pdf.set_fill_color(248, 250, 252)
-        pdf.set_draw_color(226, 232, 240)
-        pdf.set_line_width(0.25)
-        pdf.rect(28, 110, 154, 24, "DF")
-
-        # Case ID & Title inside card
-        pdf.set_xy(32, 113)
-        pdf.set_font("helvetica", "B", 12)
-        pdf.set_text_color(11, 27, 61)
-        pdf.write(6, "Case ID: ")
-        pdf.set_text_color(184, 115, 20)
-        pdf.write(6, case_num)
-
-        case_title = case.get("title") or "Digital Forensics Case Examination"
+        # Dynamic Case Title centered
+        case_title = case.get("title") or "Not available"
+        pdf.set_xy(15, 163)
+        pdf.set_font("helvetica", "B", 13.5)
+        pdf.set_text_color(11, 27, 61)  # Deep Navy
+        # Truncate if extremely long to maintain elegant cover whitespace
         if len(case_title) > 65:
             case_title = case_title[:62] + "..."
-        pdf.set_xy(32, 122)
-        pdf.set_font("helvetica", "B", 10)
-        pdf.set_text_color(30, 41, 59)
-        pdf.cell(146, 6, _safe_text(case_title), align="L")
+        pdf.cell(180, 7, _safe_text(case_title), align="C")
 
-        # Master Metadata Table
+        # Dynamic Metadata Table (Clean Two-Column Label-and-Value layout)
         user_name = user.get("name") or "Chief Investigator"
         user_role = (user.get("role") or "admin").capitalize()
         status_disp = (case.get("status") or "Open").replace("_", " ").title()
         gen_timestamp_disp = now.strftime("%d %B %Y, %H:%M:%S (UTC)")
+
         prepared_by = user_name if f"({user_role})" in user_name else f"{user_name} ({user_role})"
 
-        master_meta = [
-            ("Report Identifier", report_id_str),
+        cover_metadata = [
+            ("Report ID", report_id_str),
             ("Generated On", gen_timestamp_disp),
             ("Prepared By", prepared_by),
             ("Case Status", status_disp),
             ("Classification", report_class),
-            ("Version", f"{version}.0 (Cryptographically Sealed)"),
-            ("Forensic Standard", "ISO/IEC 27037 & FIPS 180-4")
+            ("Version", f"{version}.0")
         ]
 
-        y_m = 144
-        for lbl, val in master_meta:
-            pdf.set_xy(34, y_m)
-            pdf.set_font("helvetica", "B", 9.5)
-            pdf.set_text_color(11, 27, 61)
-            pdf.cell(42, 6.5, _safe_text(lbl))
-            pdf.cell(6, 6.5, ":")
+        y_meta = 184
+        for lbl, val in cover_metadata:
             pdf.set_font("helvetica", "", 9.5)
             pdf.set_text_color(30, 41, 59)
-            pdf.cell(90, 6.5, _safe_text(val))
-            y_m += 7.8
-
-        # Lower Gold Divider
-        pdf.set_draw_color(184, 134, 11)
-        pdf.set_line_width(0.4)
-        pdf.line(32, 206, 178, 206)
-
-        # 4 Core Pillars at bottom
-        pillars = [
-            ("EVIDENCE INTEGRITY", "SHA-256 Validated"),
-            ("CHAIN OF CUSTODY", "Continuous Ledger"),
-            ("INVESTIGATION DIARY", "BNSS Sec. 192"),
-            ("SECURE REPORTING", "Court-Admissible")
-        ]
-        start_px = 24
-        p_w = 38
-        for p_title, p_sub in pillars:
-            pdf.set_xy(start_px, 214)
-            pdf.set_font("helvetica", "B", 7.5)
-            pdf.set_text_color(11, 27, 61)
-            pdf.cell(p_w, 4.5, p_title, align="C")
-            pdf.set_xy(start_px, 219)
-            pdf.set_font("helvetica", "", 6.5)
-            pdf.set_text_color(100, 116, 139)
-            pdf.cell(p_w, 3.8, p_sub, align="C")
-            start_px += p_w + 3
+            pdf.set_xy(34, y_meta)
+            pdf.cell(34, 6.2, _safe_text(lbl))
+            pdf.cell(8, 6.2, ":")
+            pdf.set_font("helvetica", "", 9.5)
+            pdf.set_text_color(15, 23, 42)
+            pdf.cell(96, 6.2, _safe_text(val if val else "Not available"))
+            y_meta += 6.7
 
         # =========================================================================
         # REMAINING PAGES: SECTIONS 1 TO 17 (ALL IN THE SAME REPORT)
@@ -1007,170 +943,9 @@ class ForensicReportService:
         pdf.paragraph(methodology_text, font_size=7.5)
 
         # -------------------------------------------------------------------------
-        # SECTION 15: FINDINGS AND CONCLUSION
+        # SECTION 15: DIGITAL INVESTIGATION DIARY (BNSS SECTION 192 RECORD)
         # -------------------------------------------------------------------------
-        pdf.section_heading(15, "Findings and Conclusion")
-        verdict_status = "CRITICAL INTEGRITY CONCERNS" if tampered_count > 0 else "INTEGRITY FULLY VERIFIED"
-        conclusion_body = (
-            f"The forensic examination of Case {case_num} ('{case.get('title', 'Incident')}') has concluded. "
-            f"Of the {len(evidence_list)} exhibit(s) examined, {verified_count} exhibit(s) match initial ingestion baselines. "
-            f"A total of {tampered_count} exhibit(s) demonstrated hash mismatches, and {sec_count} security alerts were recorded.\n\n"
-            f"Chain of custody records ({len(custody_list)} events) show complete actor attestation with cryptographic integrity. "
-            f"The calculated deterministic risk score is {risk_data.score}/100 ({risk_lvl}). "
-            f"All forensic exhibits and audit trails remain preserved and accessible for judicial proceedings."
-        )
-        pdf.callout_box(conclusion_body, title=f"Examiner Summary: {verdict_status}", badge=risk_lvl, badge_color=integ_color)
-
-        # -------------------------------------------------------------------------
-        # SECTION 16: REPORT INTEGRITY AND AUTHORIZATION
-        # -------------------------------------------------------------------------
-        pdf.section_heading(16, "Report Integrity and Authorization")
-        pdf.paragraph(
-            "CRYPTOGRAPHIC REPORT SEALING PROTOCOL:\n"
-            "Upon compilation, the finalized PDF byte stream is passed through FIPS 180-4 SHA-256 cryptographic hashing. "
-            "The calculated digest is permanently registered into the CRYPTEVID immutable database registry and mirrored "
-            "to the tamper-evident audit ledger. Any byte-level modification after generation invalidates this official seal."
-        )
-
-        prev_ref_str = f"v{version - 1}.0" if version > 1 else "Initial Release (v1.0)"
-        pdf.key_value_grid([
-            ("Report Identifier", report_id_str),
-            ("Document Version", f"v{version}.0"),
-            ("Generation Timestamp", now.strftime("%Y-%m-%d %H:%M:%S UTC")),
-            ("Authorized Examiner", prepared_by),
-            ("Previous Version Reference", prev_ref_str),
-            ("Registry Status", "PENDING_CRYPTOGRAPHIC_FINALIZATION")
-        ], cols=2)
-
-        # Official Certification Box & Signature
-        pdf.check_space(32)
-        pdf.ln(2)
-        pdf.set_fill_color(248, 250, 252)
-        pdf.set_draw_color(203, 213, 225)
-        cert_y = pdf.get_y()
-        pdf.rect(12, cert_y, 186, 28, "DF")
-
-        pdf.set_xy(16, cert_y + 2.5)
-        pdf.set_font("helvetica", "B", 7.5)
-        pdf.set_text_color(11, 27, 61)
-        pdf.cell(178, 4, "OFFICIAL FORENSIC EXAMINER CERTIFICATION", new_x="LMARGIN", new_y="NEXT")
-
-        pdf.set_x(16)
-        pdf.set_font("helvetica", "", 7)
-        pdf.set_text_color(51, 65, 85)
-        pdf.multi_cell(178, 3.6, _safe_text(
-            "I hereby attest under official oath that this forensic report accurately documents the state of all "
-            "exhibits, cryptographic hashes, and custody ledgers associated with this case container as of the generation timestamp."
-        ))
-
-        pdf.set_xy(16, cert_y + 19)
-        pdf.set_font("helvetica", "B", 7.5)
-        pdf.set_text_color(15, 23, 42)
-        pdf.cell(85, 4.5, _safe_text(f"Examiner Signature: {user_name}"), border="T")
-        pdf.set_xy(110, cert_y + 19)
-        pdf.cell(82, 4.5, f"Date: {now.strftime('%d %B %Y')}", border="T")
-        pdf.set_y(cert_y + 32)
-
-        # -------------------------------------------------------------------------
-        # SECTION 17: APPENDICES
-        # -------------------------------------------------------------------------
-        pdf.section_heading(17, "Appendices")
-        pdf.subsection_heading("Appendix A: Complete Exhibits Cryptographic Hash Registry")
-        app_a_headers = ["Evidence Exhibit", "File Size", "Unabridged Baseline SHA-256 Digest", "Status"]
-        app_a_widths = [45, 22, 95, 24]
-        app_a_aligns = ["L", "R", "L", "C"]
-        app_a_rows = []
-
-        for ev in evidence_list:
-            app_a_rows.append([
-                ev.get("original_filename", "Artifact"),
-                f"{ev.get('file_size', 0):,} B",
-                ev.get("sha256_hash", "UNKNOWN"),
-                ev.get("integrity_status", "VERIFIED")
-            ])
-
-        pdf.render_table(
-            app_a_headers, app_a_widths, app_a_rows, app_a_aligns,
-            status_rules={3: {"TAMPERED": (225, 29, 72), "VERIFIED": (5, 150, 105)}}
-        )
-
-        pdf.subsection_heading("Appendix B: Forensic & Cryptographic Terminology Glossary")
-        glossary_items = [
-            ("SHA-256", "FIPS 180-4 secure cryptographic hash producing an immutable 256-bit identifier for bit-stream verification."),
-            ("Chain of Custody", "Continuous chronological documentation of evidence acquisition, transfer, analysis, and disposition."),
-            ("Tamper-Evident", "Properties allowing unauthorized modifications to be reliably and cryptographically detected."),
-            ("Bit-stream Preservation", "Exact bit-level image of original digital media guaranteeing zero alteration to original source."),
-            ("Deterministic Risk", "Objective mathematical scoring based on formulaic signal weights rather than generative AI estimates.")
-        ]
-        pdf.key_value_grid(glossary_items, cols=1)
-
-        # =========================================================================
-        # PART II: DIGITAL INVESTIGATION DIARY (BNSS SECTION 192 RECORD)
-        # "the given page need to be the starting page for the investigation content"
-        # =========================================================================
-        pdf.set_auto_page_break(False)
-        pdf.add_page()
-        pdf.suppressed_pages.append(pdf.page_no())
-
-        # Render the Given Page template (COVER_TEMPLATE_PATH)
-        if os.path.exists(COVER_TEMPLATE_PATH):
-            pdf.image(COVER_TEMPLATE_PATH, x=0, y=0, w=210, h=297)
-        else:
-            # High-fidelity programmatic fallback if asset not present
-            pdf.set_fill_color(255, 255, 255)
-            pdf.rect(0, 0, 210, 297, "F")
-            pdf.set_fill_color(11, 27, 61)
-            pdf.polygon([(0, 0), (60, 0), (0, 60)], "F")
-            pdf.set_fill_color(184, 134, 11)
-            pdf.polygon([(60, 0), (66, 0), (0, 66), (0, 60)], "F")
-            pdf.set_xy(15, 80)
-            pdf.set_font("helvetica", "B", 18)
-            pdf.set_text_color(11, 27, 61)
-            pdf.cell(180, 8, "BNSS SECTION 192 REPORT", align="C")
-            pdf.set_xy(15, 90)
-            pdf.set_font("helvetica", "B", 10.5)
-            pdf.set_text_color(184, 134, 11)
-            pdf.cell(180, 6, "DIARY OF PROCEEDINGS IN INVESTIGATION", align="C")
-
-        # Dynamic Metadata Table inside the given template between the gold lines (y=157mm to 216.5mm)
-        # Exactly matches the user's reference design
-        diary_cover_metadata = [
-            ("Case ID", case_num, True),
-            ("Report ID", report_id_str, False),
-            ("Generated On", gen_timestamp_disp, False),
-            ("Prepared By", prepared_by, False),
-            ("Case Status", status_disp, False),
-            ("Classification", report_class, False),
-            ("Version", f"{version}.0", False)
-        ]
-
-        y_diary_meta = 157.0
-        for lbl, val, is_highlight in diary_cover_metadata:
-            pdf.set_xy(34.0, y_diary_meta)
-            pdf.set_font("helvetica", "B", 10.0)
-            pdf.set_text_color(11, 27, 61)  # Deep Navy
-            pdf.cell(38.0, 6.2, _safe_text(lbl))
-
-            pdf.cell(6.0, 6.2, ":")
-
-            if is_highlight:
-                pdf.set_font("helvetica", "B", 11.0)
-                pdf.set_text_color(184, 115, 20)  # Metallic Amber Gold
-            else:
-                pdf.set_font("helvetica", "", 10.0)
-                pdf.set_text_color(30, 41, 59)   # Slate 800
-
-            pdf.cell(98.0, 6.2, _safe_text(val if val else "Not available"))
-            y_diary_meta += 8.5
-
-        # -------------------------------------------------------------------------
-        # SECTION 18: DIGITAL INVESTIGATION DIARY (BNSS SECTION 192 PROCEEDINGS)
-        # -------------------------------------------------------------------------
-        pdf.set_auto_page_break(True, margin=18)
-        pdf.set_margins(12, 18, 12)
-        pdf.add_page()
-
-        pdf.section_heading(18, "Digital Investigation Diary (BNSS Section 192 Record)")
+        pdf.section_heading(15, "Digital Investigation Diary (BNSS Section 192 Record)")
         pdf.paragraph(
             "Pursuant to the principles of Section 192 of the Bharatiya Nagarik Suraksha Sanhita, 2023 (BNSS), "
             "an investigating officer maintains day-by-day proceedings in an investigation diary, setting forth "
@@ -1245,7 +1020,7 @@ class ForensicReportService:
                     pdf.set_font("helvetica", "B", 7.5)
                     pdf.set_text_color(11, 27, 61)
                     pdf.cell(186, 4.5, _safe_text("Chronological Event Timeline Sequence (AI-Organized Milestones):"), new_x="LMARGIN", new_y="NEXT")
-
+                    
                     tl_headers = ["Time", "Location / Node", "Investigative Activity Proceeding"]
                     tl_widths = [24, 46, 116]
                     tl_aligns = ["C", "L", "L"]
@@ -1255,7 +1030,7 @@ class ForensicReportService:
                         loc_str = ev.get("location", "") if isinstance(ev, dict) else getattr(ev, "location", "")
                         act_str = ev.get("activity", "") if isinstance(ev, dict) else getattr(ev, "activity", "")
                         tl_rows.append([t_str, loc_str, act_str])
-
+                    
                     pdf.render_table(tl_headers, tl_widths, tl_rows, tl_aligns)
                     pdf.ln(1.5)
 
@@ -1296,6 +1071,104 @@ class ForensicReportService:
             title="Legal Framework Notice",
             badge="STATUTORY"
         )
+
+        # -------------------------------------------------------------------------
+        # SECTION 16: FINDINGS AND CONCLUSION
+        # -------------------------------------------------------------------------
+        pdf.section_heading(16, "Findings and Conclusion")
+        verdict_status = "CRITICAL INTEGRITY CONCERNS" if tampered_count > 0 else "INTEGRITY FULLY VERIFIED"
+        conclusion_body = (
+            f"The forensic examination of Case {case_num} ('{case.get('title', 'Incident')}') has concluded. "
+            f"Of the {len(evidence_list)} exhibit(s) examined, {verified_count} exhibit(s) match initial ingestion baselines. "
+            f"A total of {tampered_count} exhibit(s) demonstrated hash mismatches, and {sec_count} security alerts were recorded.\n\n"
+            f"Chain of custody records ({len(custody_list)} events) show complete actor attestation with cryptographic integrity. "
+            f"The calculated deterministic risk score is {risk_data.score}/100 ({risk_lvl}). "
+            f"All forensic exhibits and audit trails remain preserved and accessible for judicial proceedings."
+        )
+        pdf.callout_box(conclusion_body, title=f"Examiner Summary: {verdict_status}", badge=risk_lvl, badge_color=integ_color)
+
+        # -------------------------------------------------------------------------
+        # SECTION 17: REPORT INTEGRITY AND AUTHORIZATION
+        # -------------------------------------------------------------------------
+        pdf.section_heading(17, "Report Integrity and Authorization")
+        pdf.paragraph(
+            "CRYPTOGRAPHIC REPORT SEALING PROTOCOL:\n"
+            "Upon compilation, the finalized PDF byte stream is passed through FIPS 180-4 SHA-256 cryptographic hashing. "
+            "The calculated digest is permanently registered into the CRYPTEVID immutable database registry and mirrored "
+            "to the tamper-evident audit ledger. Any byte-level modification after generation invalidates this official seal."
+        )
+
+        prev_ref_str = f"v{version - 1}.0" if version > 1 else "Initial Release (v1.0)"
+        pdf.key_value_grid([
+            ("Report Identifier", report_id_str),
+            ("Document Version", f"v{version}.0"),
+            ("Generation Timestamp", now.strftime("%Y-%m-%d %H:%M:%S UTC")),
+            ("Authorized Examiner", prepared_by),
+            ("Previous Version Reference", prev_ref_str),
+            ("Registry Status", "PENDING_CRYPTOGRAPHIC_FINALIZATION")
+        ], cols=2)
+
+        # Official Certification Box & Signature
+        pdf.check_space(32)
+        pdf.ln(2)
+        pdf.set_fill_color(248, 250, 252)
+        pdf.set_draw_color(203, 213, 225)
+        cert_y = pdf.get_y()
+        pdf.rect(12, cert_y, 186, 28, "DF")
+
+        pdf.set_xy(16, cert_y + 2.5)
+        pdf.set_font("helvetica", "B", 7.5)
+        pdf.set_text_color(11, 27, 61)
+        pdf.cell(178, 4, "OFFICIAL FORENSIC EXAMINER CERTIFICATION", new_x="LMARGIN", new_y="NEXT")
+
+        pdf.set_x(16)
+        pdf.set_font("helvetica", "", 7)
+        pdf.set_text_color(51, 65, 85)
+        pdf.multi_cell(178, 3.6, _safe_text(
+            "I hereby attest under official oath that this forensic report accurately documents the state of all "
+            "exhibits, cryptographic hashes, and custody ledgers associated with this case container as of the generation timestamp."
+        ))
+
+        pdf.set_xy(16, cert_y + 19)
+        pdf.set_font("helvetica", "B", 7.5)
+        pdf.set_text_color(15, 23, 42)
+        pdf.cell(85, 4.5, _safe_text(f"Examiner Signature: {user_name}"), border="T")
+        pdf.set_xy(110, cert_y + 19)
+        pdf.cell(82, 4.5, f"Date: {now.strftime('%d %B %Y')}", border="T")
+        pdf.set_y(cert_y + 32)
+
+        # -------------------------------------------------------------------------
+        # SECTION 18: APPENDICES
+        # -------------------------------------------------------------------------
+        pdf.section_heading(18, "Appendices")
+        pdf.subsection_heading("Appendix A: Complete Exhibits Cryptographic Hash Registry")
+        app_a_headers = ["Evidence Exhibit", "File Size", "Unabridged Baseline SHA-256 Digest", "Status"]
+        app_a_widths = [45, 22, 95, 24]
+        app_a_aligns = ["L", "R", "L", "C"]
+        app_a_rows = []
+
+        for ev in evidence_list:
+            app_a_rows.append([
+                ev.get("original_filename", "Artifact"),
+                f"{ev.get('file_size', 0):,} B",
+                ev.get("sha256_hash", "UNKNOWN"),
+                ev.get("integrity_status", "VERIFIED")
+            ])
+
+        pdf.render_table(
+            app_a_headers, app_a_widths, app_a_rows, app_a_aligns,
+            status_rules={3: {"TAMPERED": (225, 29, 72), "VERIFIED": (5, 150, 105)}}
+        )
+
+        pdf.subsection_heading("Appendix B: Forensic & Cryptographic Terminology Glossary")
+        glossary_items = [
+            ("SHA-256", "FIPS 180-4 secure cryptographic hash producing an immutable 256-bit identifier for bit-stream verification."),
+            ("Chain of Custody", "Continuous chronological documentation of evidence acquisition, transfer, analysis, and disposition."),
+            ("Tamper-Evident", "Properties allowing unauthorized modifications to be reliably and cryptographically detected."),
+            ("Bit-stream Preservation", "Exact bit-level image of original digital media guaranteeing zero alteration to original source."),
+            ("Deterministic Risk", "Objective mathematical scoring based on formulaic signal weights rather than generative AI estimates.")
+        ]
+        pdf.key_value_grid(glossary_items, cols=1)
 
         # 3. Output PDF to disk
         if not target_path:
