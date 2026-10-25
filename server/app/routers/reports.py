@@ -235,30 +235,30 @@ async def download_forensic_report(
     clean_filename = doc.get("filename") or f"Forensic_Report_{doc.get('case_number', 'CASE')}_v{doc.get('version', 1)}.pdf"
     fallback_path = os.path.join(reports_dir, clean_filename)
 
-    file_path = doc.get("file_path")
+    # Dynamically render the complete PDF with Investigation Diary and fixed alignment
     actual_path = None
-    if file_path and os.path.exists(file_path):
-        actual_path = file_path
-    elif os.path.exists(fallback_path):
-        actual_path = fallback_path
-    else:
-        # Dynamically regenerate the PDF file!
-        try:
-            actual_path = await ForensicReportService.render_pdf_file(
-                db=db,
-                case_id=case_id_str,
-                user=user_doc,
-                title=doc.get("title"),
-                classification=doc.get("classification"),
-                version=doc.get("version", 1),
-                target_path=fallback_path
-            )
-            await db["forensic_reports"].update_one(
-                {"_id": doc["_id"]},
-                {"$set": {"file_path": actual_path}}
-            )
-        except Exception as e:
-            print(f"[REPORT_REGEN_ERR] {e}")
+    try:
+        actual_path = await ForensicReportService.render_pdf_file(
+            db=db,
+            case_id=case_id_str,
+            user=user_doc,
+            title=doc.get("title"),
+            classification=doc.get("classification"),
+            version=doc.get("version", 1),
+            target_path=fallback_path
+        )
+        await db["forensic_reports"].update_one(
+            {"_id": doc["_id"]},
+            {"$set": {"file_path": actual_path}}
+        )
+    except Exception as e:
+        print(f"[REPORT_REGEN_ERR] {e}")
+        # Fallback to existing path if regeneration fails
+        file_path = doc.get("file_path")
+        if file_path and os.path.exists(file_path):
+            actual_path = file_path
+        elif os.path.exists(fallback_path):
+            actual_path = fallback_path
 
     if not actual_path or not os.path.exists(actual_path):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="REPORT_FILE_NOT_FOUND_ON_DISK")
