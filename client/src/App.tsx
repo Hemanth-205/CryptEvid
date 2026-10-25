@@ -16,14 +16,12 @@ import SecurityAlertsPage from './pages/SecurityAlertsPage';
 import ReportsPage from './pages/ReportsPage';
 import Settings from './pages/Settings';
 import PortalManagerDashboard from './pages/PortalManagerDashboard';
-import HardwareTelemetryCard from './components/HardwareTelemetryCard';
 
 import { 
   FolderLock, 
   FileCheck, 
   RefreshCw,
   CheckCircle2,
-  AlertTriangle,
   Network,
   Radar,
   FileText,
@@ -33,7 +31,7 @@ import {
   Settings as SettingsIcon
 } from 'lucide-react';
 
-import api, { caseApi, evidenceApi, analyticsApi, securityApi } from './services/api';
+import { caseApi, evidenceApi, analyticsApi } from './services/api';
 import type { CaseStats, EvidenceStats, GlobalRiskStats } from './types';
 
 // Command Center Dashboard
@@ -41,22 +39,19 @@ const DashboardView: React.FC = () => {
   const [stats, setStats] = useState<CaseStats | null>(null);
   const [evidenceStats, setEvidenceStats] = useState<EvidenceStats | null>(null);
   const [riskStats, setRiskStats] = useState<GlobalRiskStats | null>(null);
-  const [securityStats, setSecurityStats] = useState<any>(null);
   const [loading, setLoading] = useState<boolean>(true);
 
   const loadDashboardData = async () => {
     setLoading(true);
     try {
-      const [caseData, evData, riskData, secData] = await Promise.all([
+      const [caseData, evData, riskData] = await Promise.all([
         caseApi.getCaseStats(),
         evidenceApi.getEvidenceStats(),
-        analyticsApi.getGlobalRiskStats().catch(() => null),
-        securityApi.getStats().catch(() => null)
+        analyticsApi.getGlobalRiskStats().catch(() => null)
       ]);
       setStats(caseData);
       setEvidenceStats(evData);
       if (riskData) setRiskStats(riskData);
-      if (secData) setSecurityStats(secData);
     } catch (err) {
       console.error('Failed to load dashboard statistics', err);
     } finally {
@@ -154,22 +149,19 @@ const DashboardView: React.FC = () => {
 
         <div className="ws-panel ws-panel-interactive p-4.5 space-y-2 relative overflow-hidden group">
           <div className="flex items-center justify-between text-xs font-semibold text-slate-600">
-            <span>Active Threat Alerts</span>
+            <span>Critical Priority Cases</span>
             <div className="w-7 h-7 rounded-lg bg-red-50 border border-red-200 flex items-center justify-center text-red-600 shadow-xs transition-transform duration-200 group-hover:scale-110">
-              <AlertTriangle className="w-4 h-4" />
+              <FolderLock className="w-4 h-4" />
             </div>
           </div>
           <div className="text-3xl font-extrabold text-red-600 font-mono tracking-tight">
-            {securityStats?.open_alerts ?? (riskStats?.critical_risk_cases ?? 0)}
+            {stats?.critical_cases ?? (riskStats?.critical_risk_cases ?? 0)}
           </div>
           <div className="text-[11px] text-slate-500 flex items-center gap-1.5 pt-1">
-            <span>{securityStats?.unauthorized_attempts_24h ?? 0} Unauthorized attempts (24h)</span>
+            <span>Priority investigations under review</span>
           </div>
         </div>
       </div>
-
-      {/* Hardware USB Ingestion & Biometric Telemetry */}
-      <HardwareTelemetryCard />
 
       {/* Operational Workstation Launchpad */}
       <div className="ws-panel p-5 space-y-4">
@@ -189,7 +181,7 @@ const DashboardView: React.FC = () => {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
           <Link
             to="/cases"
             className="flex items-center justify-between p-3.5 rounded-xl bg-white border border-slate-200 hover:border-amber-400 hover:bg-amber-50/30 text-xs transition-all duration-200 hover:-translate-y-1 hover:shadow-md group shadow-xs"
@@ -236,22 +228,6 @@ const DashboardView: React.FC = () => {
               </div>
             </div>
             <ArrowUpRight className="w-4 h-4 text-slate-400 group-hover:text-purple-600 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5 shrink-0" />
-          </Link>
-
-          <Link
-            to="/security-alerts"
-            className="flex items-center justify-between p-3.5 rounded-lg bg-white border border-slate-200 hover:border-red-400 hover:bg-slate-50 text-xs transition-all group shadow-xs"
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-red-50 border border-red-200 flex items-center justify-center text-red-600 shrink-0">
-                <AlertTriangle className="w-4.5 h-4.5" />
-              </div>
-              <div>
-                <div className="font-bold text-slate-800 group-hover:text-red-700 transition-colors">Security Alerts</div>
-                <div className="text-[11px] text-slate-500">Intrusion & access telemetry</div>
-              </div>
-            </div>
-            <ArrowUpRight className="w-4 h-4 text-slate-400 group-hover:text-red-600 transition-colors shrink-0" />
           </Link>
 
           <Link
@@ -307,84 +283,7 @@ const DashboardView: React.FC = () => {
   );
 };
 
-// Hardware Ingestion Terminals View
-const DevicesView: React.FC = () => {
-  const [devices, setDevices] = useState<any[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
 
-  useEffect(() => {
-    const fetchDevices = async () => {
-      try {
-        const res = await api.get('/hardware/devices');
-        const list = Array.isArray(res.data) ? res.data : (res.data?.devices || []);
-        setDevices(list);
-      } catch (err) {
-        console.error('Failed to load devices', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchDevices();
-  }, []);
-
-  return (
-    <div className="space-y-6 relative z-10">
-      <div className="flex items-center justify-between border-b border-slate-200 pb-4">
-        <div>
-          <h1 className="text-2xl font-extrabold text-slate-900 font-sans tracking-tight">Hardware Ingestion Terminals</h1>
-          <p className="text-xs text-slate-500 mt-1">
-            Physical ESP32 ingestion nodes, biometric readers, and forensic extraction workstations.
-          </p>
-        </div>
-      </div>
-
-      <HardwareTelemetryCard />
-
-      <div className="ws-panel overflow-hidden">
-        <div className="table-responsive">
-          <table className="ws-table min-w-[640px]">
-            <thead>
-              <tr>
-                <th>Device ID</th>
-                <th>Terminal Label</th>
-                <th>Status</th>
-                <th>MAC Address</th>
-                <th>Firmware</th>
-                <th>Registered At</th>
-                <th>Last Heartbeat</th>
-              </tr>
-            </thead>
-            <tbody>
-              {devices.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="text-center py-10 text-slate-500 font-mono">
-                    {loading ? 'Querying hardware nodes...' : 'No hardware terminals registered.'}
-                  </td>
-                </tr>
-              ) : (
-                devices.map(d => (
-                  <tr key={d._id || d.device_id}>
-                    <td className="font-mono text-xs font-bold text-blue-600">{d.device_id}</td>
-                    <td className="font-semibold text-slate-800">{d.name}</td>
-                    <td>
-                      <span className={`ws-badge ${d.status === 'online' ? 'ws-badge-green' : 'ws-badge-red'}`}>
-                        {d.status?.toUpperCase()}
-                      </span>
-                    </td>
-                    <td className="font-mono text-xs text-slate-500">{d.mac_address}</td>
-                    <td className="font-mono text-xs text-slate-500">{d.firmware_version}</td>
-                    <td className="text-xs text-slate-500">{d.registered_at ? new Date(d.registered_at).toLocaleString() : '--'}</td>
-                    <td className="text-xs text-slate-500">{d.last_seen ? new Date(d.last_seen).toLocaleString() : '--'}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
-};
 
 // Professional Main Dashboard Shell Layout with Horizontal Top Navigation
 const DashboardLayout = () => {
@@ -407,18 +306,20 @@ const DashboardLayout = () => {
             {/* Portal Users page: ONLY displayed for Admin. Non-admins are redirected */}
             <Route path="/portal-manager" element={isAdmin ? <PortalManagerDashboard /> : <Navigate to="/dashboard" replace />} />
 
-            {/* In Admin login: ONLY Portal Users and Settings are visible/accessible */}
+            {/* Security Alerts page: ONLY displayed for Admin as a separate alert page */}
+            <Route path="/security-alerts" element={isAdmin ? <SecurityAlertsPage /> : <Navigate to="/dashboard" replace />} />
+
+            {/* In Admin login: ONLY Portal Users, Security Alerts, and Settings are visible/accessible */}
             <Route path="/cases" element={isAdmin ? <Navigate to="/portal-manager" replace /> : <Cases />} />
             <Route path="/cases/:caseId" element={isAdmin ? <Navigate to="/portal-manager" replace /> : <CaseDetail />} />
             <Route path="/evidence" element={<Navigate to={isAdmin ? "/portal-manager" : "/cases"} replace />} />
             <Route path="/graph" element={isAdmin ? <Navigate to="/portal-manager" replace /> : <EvidenceGraphPage />} />
             <Route path="/ai-analysis" element={isAdmin ? <Navigate to="/portal-manager" replace /> : <AIAnalysisPage />} />
             <Route path="/ai-analysis/:caseId" element={isAdmin ? <Navigate to="/portal-manager" replace /> : <AIAnalysisPage />} />
-            <Route path="/security-alerts" element={isAdmin ? <Navigate to="/portal-manager" replace /> : <SecurityAlertsPage />} />
             <Route path="/reports" element={isAdmin ? <Navigate to="/portal-manager" replace /> : <ReportsPage />} />
             <Route path="/custody" element={isAdmin ? <Navigate to="/portal-manager" replace /> : <ChainOfCustodyPage />} />
             <Route path="/logs" element={<Navigate to={isAdmin ? "/portal-manager" : "/custody"} replace />} />
-            <Route path="/devices" element={isAdmin ? <Navigate to="/portal-manager" replace /> : <DevicesView />} />
+            <Route path="/devices" element={<Navigate to={isAdmin ? "/security-alerts" : "/dashboard"} replace />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="*" element={<Navigate to={isAdmin ? "/portal-manager" : "/dashboard"} replace />} />
           </Routes>

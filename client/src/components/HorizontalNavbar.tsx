@@ -48,20 +48,20 @@ export const HorizontalNavbar: React.FC = () => {
   const isAdmin = user?.role === 'admin';
 
   const navItems = useMemo(() => {
-    // In Admin login, ONLY Portal Users and Settings page must be visible
+    // In Admin login, show Portal Users, Security Alerts (unauthorized access & hardware), and Settings
     if (isAdmin) {
       return [
         { name: 'Portal Users', path: '/portal-manager' },
+        { name: 'Security Alerts', path: '/security-alerts' },
         { name: 'Settings', path: '/settings' },
       ];
     }
-    // Chief Investigator and remaining investigators have ALL pages
+    // Chief Investigator and remaining investigators have casework pages only
     return [
       { name: 'Dashboard', path: '/dashboard' },
       { name: 'Cases', path: '/cases' },
       { name: 'Graph', path: '/graph' },
       { name: 'Threat Intel', path: '/ai-analysis' },
-      { name: 'Alerts', path: '/security-alerts' },
       { name: 'Reports', path: '/reports' },
       { name: 'Settings', path: '/settings' }
     ];

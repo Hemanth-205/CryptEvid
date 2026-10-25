@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Navigate } from 'react-router-dom';
 import { 
   ShieldAlert, 
   AlertTriangle, 
@@ -14,6 +15,7 @@ import {
 import { securityApi } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { formatIsoDateSafe } from '../utils/date';
+import HardwareTelemetryCard from '../components/HardwareTelemetryCard';
 
 interface SecurityAlert {
   alert_id: string;
@@ -72,6 +74,13 @@ interface SecurityStats {
 
 export const SecurityAlertsPage: React.FC = () => {
   const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
+
+  // Strict RBAC Guard: Security Alerts and hardware telemetry are for Admin portal only
+  if (!isAdmin) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
   const [activeTab, setActiveTab] = useState<'alerts' | 'events'>('alerts');
   const [alerts, setAlerts] = useState<SecurityAlert[]>([]);
   const [events, setEvents] = useState<SecurityEvent[]>([]);
@@ -163,6 +172,9 @@ export const SecurityAlertsPage: React.FC = () => {
           <span>Sync Live Feed</span>
         </button>
       </div>
+
+      {/* Hardware Telemetry, Serial Diagnostics & Physical Ingestion Events */}
+      <HardwareTelemetryCard />
 
       {/* Primary KPI Metrics */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
