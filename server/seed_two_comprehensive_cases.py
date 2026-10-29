@@ -357,13 +357,13 @@ async def seed_two_cases():
 
     case2_doc = {
         "_id": ObjectId(case2_id),
-        "case_number": "DF-2026-000102",
-        "title": "Operation Red Ledger — Financial Wire Fraud & Evidence Vault Tampering",
-        "description": "High-profile forensic inquiry into a $4,850,000.00 unauthorized treasury diversion. Suspect covertly accessed the active forensic evidence storage vault and manipulated the digital transaction ledger to alter beneficiary destination accounts. Cryptographic hash re-verification immediately detected the byte drift, confirmed tampering, and activated the isolated Preserved Original Backup for comparison and recovery.",
-        "status": "IN_PROGRESS",
+        "case_number": "DF-2026-000002",
+        "title": "Operation Phoenix Vault — Unauthorized Treasury Tampering Inquiry",
+        "description": "High-security forensic inquiry into unauthorized treasury ledger byte tampering. Active disk file contains mutated beneficiary records; authentic original evidence is preserved in immutable backup storage.",
+        "status": "OPEN",
         "priority": "CRITICAL",
         "case_type": "FINANCIAL_FRAUD",
-        "tags": ["FINANCIAL_FRAUD", "EVIDENCE_TAMPERING", "WIRE_TRANSFER", "CRITICAL_ALERT", "VAULT_MUTATION"],
+        "tags": ["TREASURY", "TAMPER_INVESTIGATION", "FINANCIAL_FRAUD", "LIVE_DEMO"],
         "created_by": ObjectId(admin_id),
         "created_by_name": admin["name"],
         "assigned_investigator": ObjectId(admin_id),
@@ -372,7 +372,7 @@ async def seed_two_cases():
         "updated_at": now,
         "notes": [
             {
-                "content": "Case initiated following audit discrepancy report on treasury wire transaction #WT-2026-99482.",
+                "content": "Case initiated following audit discrepancy report on treasury wire transaction #PHX-2026-001.",
                 "author": admin["name"],
                 "created_at": now - timedelta(days=3)
             },
@@ -382,29 +382,27 @@ async def seed_two_cases():
                 "created_at": now - timedelta(days=2)
             },
             {
-                "content": "CRITICAL TAMPER ALERT: Forensic verification detected SHA-256 hash drift on offshore_wire_transfer_ledger.csv! Investigation confirmed active file was modified on disk. Attributed actor: SUSPECT_INSIDER_HOST.",
+                "content": "CRITICAL TAMPER ALERT: Forensic verification detected SHA-256 hash drift on phoenix_treasury_ledger_oct2026.csv! Investigation confirmed active file was modified on disk. Attributed actor: Suspect Malory (Rogue System Admin).",
                 "author": admin["name"],
                 "created_at": now - timedelta(hours=6)
             }
         ]
     }
     await db["cases"].insert_one(case2_doc)
-    print(f"[+] Case 2 Inserted: DF-2026-000102 (ID: {case2_id})")
+    print(f"[+] Case 2 Inserted: DF-2026-000002 (ID: {case2_id})")
 
     # Exhibit 1: THE TAMPERED EXHIBIT
-    tampered_filename = "offshore_wire_transfer_ledger.csv"
+    tampered_filename = "phoenix_treasury_ledger_oct2026.csv"
     original_ledger_content = (
-        b"Transaction_ID,Timestamp,Sender_Entity,Beneficiary_Name,Destination_Account,Routing_Swift,Amount_USD,Authorization_Code,Status\n"
-        b"WT-2026-99481,2026-10-18T14:22:10Z,Federal Treasury Corp,EuroClear Custody NV,BE-449201948,ECLRBEBB,1250000.00,AUTH_EXEC_8829,COMPLETED\n"
-        b"WT-2026-99482,2026-10-18T16:45:00Z,Federal Treasury Corp,Apex Global Escrow LLC,SWIFT-CH-88492049,UBSWCHZH,4850000.00,AUTH_FRAUD_9901,PENDING_SETTLEMENT\n"
-        b"WT-2026-99483,2026-10-18T17:10:30Z,Federal Treasury Corp,Standard Chartered Trust,GB-992014811,SCBLUS33,750000.00,AUTH_EXEC_8835,COMPLETED\n"
+        b"Transaction_ID,Timestamp,Sender,Beneficiary,Routing_SWIFT,Amount_USD,Authorization,Status\n"
+        b"PHX-2026-001,2026-10-29T00:30:00Z,Federal Reserve NY,Apex Escrow Custody,APEXUS33,5250000.00,AUTH_GENUINE_EXEC,SETTLED\n"
+        b"PHX-2026-002,2026-10-29T00:45:00Z,Federal Reserve NY,Standard Chartered London,SCBLGB2L,1800000.00,AUTH_GENUINE_EXEC,SETTLED\n"
     )
 
     tampered_ledger_content = (
-        b"Transaction_ID,Timestamp,Sender_Entity,Beneficiary_Name,Destination_Account,Routing_Swift,Amount_USD,Authorization_Code,Status\n"
-        b"WT-2026-99481,2026-10-18T14:22:10Z,Federal Treasury Corp,EuroClear Custody NV,BE-449201948,ECLRBEBB,1250000.00,AUTH_EXEC_8829,COMPLETED\n"
-        b"WT-2026-99482,2026-10-18T16:45:00Z,Federal Treasury Corp,Offshore Shell Ltd,CY-99482104,CYPB2201,4850000.00,AUTH_TAMPERED,SETTLED_CONFIRMED\n"
-        b"WT-2026-99483,2026-10-18T17:10:30Z,Federal Treasury Corp,Standard Chartered Trust,GB-992014811,SCBLUS33,750000.00,AUTH_EXEC_8835,COMPLETED\n"
+        b"Transaction_ID,Timestamp,Sender,Beneficiary,Routing_SWIFT,Amount_USD,Authorization,Status\n"
+        b"PHX-2026-001,2026-10-29T00:30:00Z,Federal Reserve NY,Rogue Cayman Shell Corp,CYMBKY99,9999999.00,AUTH_HACKED_BY_INSIDER,CONFIRMED_FRAUD\n"
+        b"PHX-2026-002,2026-10-29T00:45:00Z,Federal Reserve NY,Standard Chartered London,SCBLGB2L,1800000.00,AUTH_GENUINE_EXEC,SETTLED\n"
     )
 
     tampered_ev_id = str(ObjectId())

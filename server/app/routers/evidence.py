@@ -135,7 +135,19 @@ async def get_or_restore_evidence_file(evidence: Dict[str, Any], db=None) -> Tup
         str(evidence.get("integrity_status", "")).upper() == IntegrityStatus.TAMPERED.value
     )
 
-    if any(k in orig_name.lower() for k in ["ledger", "offshore", "wire"]):
+    if "phoenix" in orig_name.lower():
+        phoenix_genuine = (
+            b"Transaction_ID,Timestamp,Sender,Beneficiary,Routing_SWIFT,Amount_USD,Authorization,Status\n"
+            b"PHX-2026-001,2026-10-29T00:30:00Z,Federal Reserve NY,Apex Escrow Custody,APEXUS33,5250000.00,AUTH_GENUINE_EXEC,SETTLED\n"
+            b"PHX-2026-002,2026-10-29T00:45:00Z,Federal Reserve NY,Standard Chartered London,SCBLGB2L,1800000.00,AUTH_GENUINE_EXEC,SETTLED\n"
+        )
+        phoenix_tampered = (
+            b"Transaction_ID,Timestamp,Sender,Beneficiary,Routing_SWIFT,Amount_USD,Authorization,Status\n"
+            b"PHX-2026-001,2026-10-29T00:30:00Z,Federal Reserve NY,Rogue Cayman Shell Corp,CYMBKY99,9999999.00,AUTH_HACKED_BY_INSIDER,CONFIRMED_FRAUD\n"
+            b"PHX-2026-002,2026-10-29T00:45:00Z,Federal Reserve NY,Standard Chartered London,SCBLGB2L,1800000.00,AUTH_GENUINE_EXEC,SETTLED\n"
+        )
+        content = phoenix_tampered if is_tampered else phoenix_genuine
+    elif any(k in orig_name.lower() for k in ["ledger", "offshore", "wire"]):
         content = TAMPERED_LEDGER_BYTES if is_tampered else ORIGINAL_LEDGER_BYTES
     elif "cctv" in orig_name.lower():
         content = b"\xFF\xD8\xFF\xE0\x00\x10JFIF\x00\x01\x01\x01\x00`\x00`\x00\x00\xFF\xDB\x00C\x00FORENSIC_CCTV_SAMPLE_EVIDENCE_STREAM_DATA_2026"
