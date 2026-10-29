@@ -631,6 +631,7 @@ export const CaseDetail: React.FC = () => {
   };
 
   const [downloadingBackupId, setDownloadingBackupId] = useState<string | null>(null);
+  const [confirmingTamperId, setConfirmingTamperId] = useState<string | null>(null);
 
   const handleDownloadOriginalBackup = async (evidence: Evidence) => {
     if (user?.role === 'portal_manager') {
@@ -638,22 +639,57 @@ export const CaseDetail: React.FC = () => {
       return;
     }
     setDownloadingBackupId(evidence._id);
+    setEvidenceError(null);
     try {
       const blobData = await evidenceApi.downloadBackupBlob(evidence._id);
-      const blob = new Blob([blobData]);
+      const mimeType = evidence.mime_type || (evidence.original_filename?.endsWith('.csv') ? 'text/csv' : 'application/octet-stream');
+      const blob = blobData instanceof Blob ? blobData : new Blob([blobData], { type: mimeType });
       const blobUrl = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = blobUrl;
-      link.download = `ORIGINAL_BACKUP_${evidence.original_filename || 'evidence.bin'}`;
+      link.download = evidence.original_filename || 'original_evidence.bin';
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       setTimeout(() => window.URL.revokeObjectURL(blobUrl), 1000);
     } catch (err: any) {
       console.error('Evidence original backup download failed:', err);
-      alert(err.response?.data?.detail || err.message || 'Failed to download preserved original backup.');
+      let errorMsg = 'Failed to download preserved original backup.';
+      if (err.response?.data instanceof Blob) {
+        try {
+          const text = await err.response.data.text();
+          const parsed = JSON.parse(text);
+          errorMsg = parsed.detail || text;
+        } catch {
+          errorMsg = err.response.statusText || 'Download failed';
+        }
+      } else if (err.response?.data?.detail) {
+        errorMsg = err.response.data.detail;
+      } else if (err.message) {
+        errorMsg = err.message;
+      }
+      setEvidenceError(errorMsg);
+      alert(errorMsg);
     } finally {
       setDownloadingBackupId(null);
+    }
+  };
+
+  const handleConfirmTamperingFromVerify = async (evidenceId: string) => {
+    setConfirmingTamperId(evidenceId);
+    try {
+      await evidenceApi.confirmTamper(evidenceId, {
+        reason: 'Forensic inspection confirmed unauthorized byte modification on host storage volume.',
+        attacker_attribution: 'UNAUTHORIZED_ACTOR',
+        investigation_notes: 'Physical byte mutation detected during cryptographic SHA-256 verification.'
+      });
+      setSelectedVerify(null);
+      await fetchCaseDetails();
+    } catch (err: any) {
+      console.error('Confirm tamper failed:', err);
+      alert(err.response?.data?.detail || err.message || 'Failed to confirm tampering.');
+    } finally {
+      setConfirmingTamperId(null);
     }
   };
 
@@ -757,10 +793,24 @@ export const CaseDetail: React.FC = () => {
           <div className="flex items-center gap-2">
             {/* If any evidence item has confirmed TAMPERED status, show Original Evidence Backup section next to Download Report */}
             {evidenceList.some(e => e.integrity_status === 'TAMPERED') && (
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-red-50 border border-red-300 text-red-800 text-xs font-mono">
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-red-50 border border-red-300 text-red-800 text-xs font-mono shadow-xs">
                 <ShieldAlert className="w-4 h-4 text-red-600 shrink-0" />
                 <span className="font-bold">Original Evidence Backup:</span>
-                <span className="text-[11px] text-red-700">Preserved for {evidenceList.filter(e => e.integrity_status === 'TAMPERED').length} tampered exhibit(s)</span>
+                {evidenceList
+                  .filter(e => e.integrity_status === 'TAMPERED')
+                  .map(ev => (
+                    <button
+                      key={ev._id}
+                      type="button"
+                      onClick={() => requireEvidenceAuth(`Download Original Backup: ${ev.original_filename}`, () => handleDownloadOriginalBackup(ev))}
+                      disabled={downloadingBackupId === ev._id}
+                      className="ws-btn ws-btn-amber !py-1 !px-2.5 !text-[11px] font-bold text-red-900 bg-red-100 border-red-300 hover:bg-red-200 cursor-pointer inline-flex items-center gap-1 shadow-2xs transition-all active:scale-95"
+                      title={`Download Preserved Original Backup for ${ev.original_filename}`}
+                    >
+                      <Download className="w-3 h-3 text-red-700" />
+                      <span>{downloadingBackupId === ev._id ? 'Downloading...' : `Download Original (${ev.original_filename})`}</span>
+                    </button>
+                  ))}
               </div>
             )}
 
@@ -2339,6 +2389,43 @@ export const CaseDetail: React.FC = () => {
                   {selectedVerify.calculated_hash}
                 </div>
               </div>
+
+              {/* INTEGRITY MISMATCH: Action banner to confirm tampering */}
+              {(selectedVerify.integrity === 'INTEGRITY_MISMATCH' || selectedVerify.integrity === 'UNDER_INVESTIGATION') && user?.role !== 'readonly' && user?.role !== 'portal_manager' && (
+                <div className="p-3 rounded-lg bg-amber-50 border border-amber-300 space-y-2 mt-3 font-sans">
+                  <div className="flex items-center gap-2 text-amber-900 font-bold text-xs">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>Cryptographic Hash Drift Detected</span>
+                  </div>
+                  <p className="text-[11px] text-amber-800 leading-relaxed">
+                    Physical file bytes on disk have mutated from the acquisition baseline. Confirming tampering preserves the immutable original backup and activates the Original Evidence Backup download.
+                  </p>
+                  <div className="flex justify-end pt-1">
+                    <button
+                      type="button"
+                      onClick={() => handleConfirmTamperingFromVerify(selectedVerify.evidence_id)}
+                      disabled={confirmingTamperId === selectedVerify.evidence_id}
+                      className="ws-btn ws-btn-amber !py-1.5 !px-3 !text-xs font-bold text-red-900 bg-red-100 border-red-300 hover:bg-red-200 cursor-pointer inline-flex items-center gap-1.5 shadow-xs"
+                    >
+                      <ShieldAlert className="w-3.5 h-3.5 text-red-700" />
+                      <span>{confirmingTamperId === selectedVerify.evidence_id ? 'Confirming...' : 'Confirm Unauthorized Tampering (Rule A)'}</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* CONFIRMED TAMPERED: Indicator of preserved backup */}
+              {selectedVerify.integrity === 'TAMPERED' && (
+                <div className="p-3 rounded-lg bg-red-50 border border-red-200 space-y-1.5 mt-3 font-sans">
+                  <div className="flex items-center gap-2 text-red-900 font-bold text-xs">
+                    <ShieldAlert className="w-4 h-4 text-red-600 shrink-0" />
+                    <span>Evidence Confirmed TAMPERED</span>
+                  </div>
+                  <p className="text-[11px] text-red-800 leading-relaxed">
+                    This exhibit is confirmed tampered. The original evidence artifact is preserved in isolated immutable backup and available for download.
+                  </p>
+                </div>
+              )}
             </div>
 
             <div className="flex justify-end px-5 py-3.5 border-t border-slate-200 bg-slate-50 shrink-0">

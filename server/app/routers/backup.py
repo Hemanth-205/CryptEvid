@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.responses import FileResponse
 from typing import Dict, Any, List
 
+from app.core.config import settings
 from app.core.database import get_database
 from app.routers.auth import get_current_user
 from app.core.rbac import is_admin, require_case_access
@@ -267,36 +268,75 @@ async def download_backup(
         )
 
     storage_path = record.get("storage_path", "")
-    if storage_path:
-        norm = storage_path.replace("\\", "/")
-        if "evidence_storage/" in norm:
-            cand = os.path.abspath(os.path.join(settings.EVIDENCE_STORAGE_DIR, norm.split("evidence_storage/", 1)[1].lstrip("/")))
-            if os.path.exists(cand):
-                storage_path = cand
+    resolved_path = None
 
-    if not storage_path or not os.path.exists(storage_path):
+    # 1. Direct path check
+    if storage_path and os.path.exists(storage_path):
+        resolved_path = os.path.abspath(storage_path)
+    else:
+        # 2. Check normalized cross-platform paths
         case_id = str(record.get("case_id", ""))
         backup_id = str(record.get("backup_id", "BACKUP"))
         fname = record.get("original_filename", "preserved_original.bin")
-        fallback_dir = os.path.abspath(os.path.join(settings.BACKUP_STORAGE_DIR, case_id, backup_id))
-        os.makedirs(fallback_dir, exist_ok=True)
-        storage_path = os.path.join(fallback_dir, fname)
-        if not os.path.exists(storage_path):
-            with open(storage_path, "wb") as bf:
-                if any(k in fname.lower() for k in ["ledger", "offshore", "wire"]):
-                    from app.routers.evidence import ORIGINAL_LEDGER_BYTES
-                    bf.write(ORIGINAL_LEDGER_BYTES)
-                else:
-                    bf.write(f"CRYPTEVID_PRESERVED_ORIGINAL_BACKUP::{case_id}::{backup_id}\n".encode())
+        safe_fname = os.path.basename(fname)
 
-    # Verify backup integrity before serving - prevent serving corrupted backup
+        candidates = []
+        if storage_path:
+            norm = storage_path.replace("\\", "/")
+            if "evidence_storage/" in norm:
+                rel = norm.split("evidence_storage/", 1)[1].lstrip("/")
+                candidates.append(os.path.abspath(os.path.join(settings.EVIDENCE_STORAGE_DIR, rel)))
+            if "backups/" in norm:
+                rel = norm.split("backups/", 1)[1].lstrip("/")
+                candidates.append(os.path.abspath(os.path.join(settings.BACKUP_STORAGE_DIR, rel)))
+
+        candidates.extend([
+            os.path.abspath(os.path.join(settings.BACKUP_STORAGE_DIR, case_id, backup_id, safe_fname)),
+            os.path.abspath(os.path.join(settings.BACKUP_STORAGE_DIR, case_id, backup_id, f"{evidence_id}_{safe_fname}")),
+            os.path.abspath(os.path.join(settings.BACKUP_STORAGE_DIR, case_id, safe_fname)),
+            os.path.abspath(os.path.join(settings.BACKUP_STORAGE_DIR, case_id, f"{evidence_id}_{safe_fname}")),
+        ])
+
+        # Walk backup case directory if exists
+        case_backup_dir = os.path.abspath(os.path.join(settings.BACKUP_STORAGE_DIR, case_id))
+        if os.path.exists(case_backup_dir):
+            for root, dirs, files in os.walk(case_backup_dir):
+                for f in files:
+                    if f == safe_fname or f.endswith(safe_fname):
+                        candidates.append(os.path.join(root, f))
+
+        for cand in candidates:
+            if cand and os.path.exists(cand):
+                resolved_path = os.path.abspath(cand)
+                break
+
+    # If original bytes are missing on disk, return clear error without fabricating mock data
+    if not resolved_path or not os.path.exists(resolved_path):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="ORIGINAL_BACKUP_BYTES_MISSING: Preserved original evidence backup file is missing or unreadable on storage volume."
+        )
+
+    # 3. Cryptographically verify the backup SHA-256 against the original acquisition hash
     import hashlib
     hasher = hashlib.sha256()
-    with open(storage_path, "rb") as bf:
+    with open(resolved_path, "rb") as bf:
         while chunk := bf.read(64 * 1024):
             hasher.update(chunk)
     actual_backup_hash = hasher.hexdigest().lower()
-    expected_backup_hash = (record.get("backup_sha256") or record.get("original_sha256", "")).lower()
+
+    expected_baseline_hash = (
+        record.get("original_sha256") or 
+        record.get("backup_sha256") or 
+        evidence.get("original_sha256_hash") or 
+        evidence.get("sha256_hash", "")
+    ).lower()
+
+    if expected_baseline_hash and actual_backup_hash != expected_baseline_hash:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"BACKUP_INTEGRITY_MISMATCH: Preserved original backup failed cryptographic verification. Baseline acquisition SHA-256: {expected_baseline_hash}, calculated file SHA-256: {actual_backup_hash}."
+        )
 
     client_ip = request.client.host if request.client else "127.0.0.1"
     backup_id = record["backup_id"]
@@ -311,8 +351,9 @@ async def download_backup(
         actor_id=str(current_user["_id"]),
         actor_name=current_user.get("name", "Administrator"),
         details=(
-            f"Preserved original downloaded by ADMIN. "
+            f"Preserved original downloaded by {current_user.get('role', 'INVESTIGATOR')}. "
             f"Backup ID: {backup_id}. "
+            f"Verified SHA-256: {actual_backup_hash}. "
             f"IP: {client_ip}. "
             f"User: {current_user.get('name')}."
         ),
@@ -328,14 +369,16 @@ async def download_backup(
         details=(
             f"[BACKUP DOWNLOAD] Evidence: {evidence_id}. "
             f"Backup ID: {backup_id}. "
+            f"Verified SHA-256: {actual_backup_hash}. "
             f"User: {current_user.get('name')} ({current_user.get('email')}). "
             f"IP: {client_ip}. "
             f"Device/User-Agent: {user_agent[:120]}."
         )
     )
 
+    download_filename = record.get("original_filename") or evidence.get("original_filename") or "original_evidence.bin"
     return FileResponse(
-        path=storage_path,
-        filename=f"PRESERVED_ORIGINAL_{record['original_filename']}",
-        media_type=evidence.get("mime_type", "application/octet-stream")
+        path=resolved_path,
+        filename=download_filename,
+        media_type=evidence.get("mime_type") or "application/octet-stream"
     )
