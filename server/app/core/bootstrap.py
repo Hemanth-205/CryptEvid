@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from app.core.database import get_database
 from app.core.security import get_password_hash, verify_password
 
@@ -154,13 +154,15 @@ async def ensure_default_users():
 
 async def ensure_demo_cases():
     """
-    Ensures demonstration cases, including the tampered evidence inquiry with
-    preserved immutable backup, are present in the investigator portal across all deployments.
+    Ensures demonstration cases, specifically Operation Red Ledger with confirmed
+    tampered evidence and preserved immutable backup, are present in the investigator
+    case portal across all deployments (local & cloud).
     """
     try:
         from app.core.config import settings
         import os, hashlib
         from bson import ObjectId
+        from app.routers.evidence import ORIGINAL_LEDGER_BYTES, TAMPERED_LEDGER_BYTES
 
         db = get_database()
         cases_col = db["cases"]
@@ -176,75 +178,75 @@ async def ensure_demo_cases():
             return
 
         chief_id = str(chief["_id"])
-        chief_name = chief.get("name", "Chief Investigator")
+        chief_name = "Chief Investigator (Admin)"
 
-        # 1. Purge legacy removed case if present
-        await cases_col.delete_many({"case_number": "DF-2026-000102"})
+        # 1. Clean up legacy / temporary case numbers
+        await cases_col.delete_many({"case_number": "DF-2026-000002"})
 
-        # 2. Check if Demo Tampered Case exists
-        existing_tampered = await cases_col.find_one({
-            "$or": [
-                {"title": {"$regex": "Operation Phoenix Vault", "$options": "i"}},
-                {"case_number": "DF-2026-000002"}
-            ]
-        })
+        # 2. Check if Demo Tampered Case exists (DF-2026-000102 Operation Red Ledger)
+        existing_case = await cases_col.find_one({"case_number": "DF-2026-000102"})
 
-        genuine_bytes = (
-            b"Transaction_ID,Timestamp,Sender,Beneficiary,Routing_SWIFT,Amount_USD,Authorization,Status\n"
-            b"PHX-2026-001,2026-10-29T00:30:00Z,Federal Reserve NY,Apex Escrow Custody,APEXUS33,5250000.00,AUTH_GENUINE_EXEC,SETTLED\n"
-            b"PHX-2026-002,2026-10-29T00:45:00Z,Federal Reserve NY,Standard Chartered London,SCBLGB2L,1800000.00,AUTH_GENUINE_EXEC,SETTLED\n"
-        )
-        tampered_bytes = (
-            b"Transaction_ID,Timestamp,Sender,Beneficiary,Routing_SWIFT,Amount_USD,Authorization,Status\n"
-            b"PHX-2026-001,2026-10-29T00:30:00Z,Federal Reserve NY,Rogue Cayman Shell Corp,CYMBKY99,9999999.00,AUTH_HACKED_BY_INSIDER,CONFIRMED_FRAUD\n"
-            b"PHX-2026-002,2026-10-29T00:45:00Z,Federal Reserve NY,Standard Chartered London,SCBLGB2L,1800000.00,AUTH_GENUINE_EXEC,SETTLED\n"
-        )
+        genuine_bytes = ORIGINAL_LEDGER_BYTES
+        tampered_bytes = TAMPERED_LEDGER_BYTES
         genuine_hash = hashlib.sha256(genuine_bytes).hexdigest().lower()
         tampered_hash = hashlib.sha256(tampered_bytes).hexdigest().lower()
         now = datetime.now(timezone.utc)
+        case_created_time = datetime(2026, 10, 22, 18, 33, 0, tzinfo=timezone.utc)
 
-        if not existing_tampered:
+        if not existing_case:
             case_id = str(ObjectId())
             case_doc = {
                 "_id": ObjectId(case_id),
-                "case_number": "DF-2026-000002",
-                "title": "Operation Phoenix Vault — Unauthorized Treasury Tampering Inquiry",
-                "description": "High-security forensic inquiry into unauthorized treasury ledger byte tampering. Active disk file contains mutated beneficiary records; authentic original evidence is preserved in immutable backup storage.",
-                "status": "OPEN",
+                "case_number": "DF-2026-000102",
+                "title": "Operation Red Ledger — Financial Wire Fraud & Evidence Vault Tampering",
+                "description": "High-profile forensic inquiry into a $4,850,000.00 unauthorized treasury diversion. Suspect covertly accessed the evidence vault storage node to manipulate offshore wire transfer ledgers; authentic original evidence is preserved in the immutable backup vault.",
+                "status": "IN_PROGRESS",
                 "priority": "CRITICAL",
                 "case_type": "FINANCIAL_FRAUD",
-                "tags": ["TREASURY", "TAMPER_INVESTIGATION", "FINANCIAL_FRAUD", "LIVE_DEMO"],
+                "tags": ["FINANCIAL_FRAUD", "WIRE_TRANSFER", "EVIDENCE_TAMPERED", "LIVE_DEMO"],
                 "created_by": ObjectId(chief_id),
                 "created_by_name": chief_name,
                 "assigned_investigator": ObjectId(chief_id),
                 "assigned_investigator_name": chief_name,
-                "created_at": now - timedelta(days=2),
+                "created_at": case_created_time,
                 "updated_at": now,
                 "notes": [
                     {
-                        "content": "Cryptographic discrepancy detected on treasury ledger exhibit during periodic vault audit.",
+                        "content": "Automated ledger integrity sentinel detected physical disk byte tampering on wire transfer records.",
                         "author": chief_name,
                         "created_at": now - timedelta(hours=8)
                     }
                 ]
             }
             await cases_col.insert_one(case_doc)
-            print(f"[BOOTSTRAP] Seeded Demo Tampered Case: DF-2026-000002 ({case_id})")
+            print(f"[BOOTSTRAP] Seeded Demo Tampered Case: DF-2026-000102 ({case_id})")
         else:
-            case_id = str(existing_tampered["_id"])
+            case_id = str(existing_case["_id"])
+            await cases_col.update_one(
+                {"_id": existing_case["_id"]},
+                {"$set": {
+                    "title": "Operation Red Ledger — Financial Wire Fraud & Evidence Vault Tampering",
+                    "description": "High-profile forensic inquiry into a $4,850,000.00 unauthorized treasury diversion. Suspect covertly accessed the evidence vault storage node to manipulate offshore wire transfer ledgers; authentic original evidence is preserved in the immutable backup vault.",
+                    "status": "IN_PROGRESS",
+                    "priority": "CRITICAL",
+                    "case_type": "FINANCIAL_FRAUD",
+                    "assigned_investigator_name": chief_name,
+                    "updated_at": now
+                }}
+            )
 
-        # Check evidence exhibit
+        # 3. Check / Seed Evidence exhibit
         evidence_doc = await evidence_col.find_one({
             "case_id": case_id,
-            "original_filename": "phoenix_treasury_ledger_oct2026.csv"
+            "original_filename": "offshore_wire_transfer_ledger.csv"
         })
 
         working_dir = os.path.abspath(os.path.join(settings.EVIDENCE_STORAGE_DIR, case_id))
-        backup_dir = os.path.abspath(os.path.join(settings.BACKUP_STORAGE_DIR, case_id, "BACKUP-EVDPhoenix-V1"))
+        backup_dir = os.path.abspath(os.path.join(settings.BACKUP_STORAGE_DIR, case_id, "BACKUP-EVD-RedLedger-V1"))
         os.makedirs(working_dir, exist_ok=True)
         os.makedirs(backup_dir, exist_ok=True)
 
-        backup_path = os.path.join(backup_dir, "phoenix_treasury_ledger_oct2026.csv")
+        backup_path = os.path.join(backup_dir, "offshore_wire_transfer_ledger.csv")
         with open(backup_path, "wb") as f:
             f.write(genuine_bytes)
 
@@ -252,7 +254,7 @@ async def ensure_demo_cases():
             evidence_id = str(ObjectId())
             sub_dir = os.path.join(working_dir, evidence_id)
             os.makedirs(sub_dir, exist_ok=True)
-            working_path = os.path.join(sub_dir, "phoenix_treasury_ledger_oct2026.csv")
+            working_path = os.path.join(sub_dir, "offshore_wire_transfer_ledger.csv")
 
             with open(working_path, "wb") as f:
                 f.write(tampered_bytes)
@@ -260,8 +262,8 @@ async def ensure_demo_cases():
             evidence_doc = {
                 "_id": ObjectId(evidence_id),
                 "case_id": case_id,
-                "original_filename": "phoenix_treasury_ledger_oct2026.csv",
-                "stored_filename": f"{evidence_id}_phoenix_treasury_ledger_oct2026.csv",
+                "original_filename": "offshore_wire_transfer_ledger.csv",
+                "stored_filename": f"{evidence_id}_offshore_wire_transfer_ledger.csv",
                 "file_size": len(tampered_bytes),
                 "mime_type": "text/csv",
                 "file_extension": "csv",
@@ -270,20 +272,20 @@ async def ensure_demo_cases():
                 "original_sha256_hash": genuine_hash,
                 "calculated_hash": tampered_hash,
                 "integrity_status": "TAMPERED",
-                "source_device": "VAULT_TERMINAL_01",
+                "source_device": "BANKING_SERVER_01",
                 "collector": chief_name,
-                "created_at": now - timedelta(days=2),
+                "created_at": case_created_time,
                 "last_verified_at": now - timedelta(hours=1),
                 "has_original_backup": True,
                 "tamper_details": {
                     "confirmed_at": now - timedelta(hours=1),
                     "confirmed_by": chief_id,
                     "confirmed_by_name": chief_name,
-                    "reason": "Host disk mutation detected during cryptographic SHA-256 verification. Beneficiary altered to Rogue Cayman Shell Corp.",
-                    "attacker_attribution": "Suspect Malory (Rogue System Admin)",
-                    "attributed_actor": "Suspect Malory (Rogue System Admin)",
+                    "reason": "Host disk mutation detected during cryptographic SHA-256 verification: Beneficiary changed to 'Offshore Shell Ltd'.",
+                    "attacker_attribution": "SUSPECT_INSIDER_HOST",
+                    "attributed_actor": "SUSPECT_INSIDER_HOST",
                     "tamper_method": "DIRECT_STORAGE_WRITE",
-                    "investigation_notes": "Cryptographic mismatch verified. Working copy preserved in tampered state for court prosecution. Preserved original backup unlocked."
+                    "investigation_notes": "Working copy confirmed mutated on disk. Baseline hash verified. Preserved original backup in isolated vault remains 100% intact and available for recovery."
                 }
             }
             await evidence_col.insert_one(evidence_doc)
@@ -291,27 +293,27 @@ async def ensure_demo_cases():
             meta_doc = {
                 "evidence_id": evidence_id,
                 "case_id": case_id,
-                "original_filename": "phoenix_treasury_ledger_oct2026.csv",
+                "original_filename": "offshore_wire_transfer_ledger.csv",
                 "file_size": len(genuine_bytes),
                 "mime_type": "text/csv",
                 "file_extension": "csv",
-                "source_device": "VAULT_TERMINAL_01",
+                "source_device": "BANKING_SERVER_01",
                 "source_type": "DATABASE_EXPORT",
                 "collector": chief_name,
                 "description": "Original Treasury Wire Transfer Ledger. Captured at initial evidence acquisition baseline.",
-                "tags": ["TREASURY", "FINANCIAL_RECORD", "EVIDENCE_TAMPERED", "FRAUD"],
+                "tags": ["FINANCIAL_RECORD", "WIRE_TRANSFER", "EVIDENCE_TAMPERED", "FRAUD"],
                 "metadata_status": "EXTRACTED",
-                "created_at": now - timedelta(days=2)
+                "created_at": case_created_time
             }
             await metadata_col.insert_one(meta_doc)
 
             backup_doc = {
-                "backup_id": "BACKUP-EVDPhoenix-V1",
+                "backup_id": "BACKUP-EVD-RedLedger-V1",
                 "evidence_id": evidence_id,
                 "case_id": case_id,
                 "version": 1,
-                "original_filename": "phoenix_treasury_ledger_oct2026.csv",
-                "storage_reference": "BACKUP-EVDPhoenix-V1",
+                "original_filename": "offshore_wire_transfer_ledger.csv",
+                "storage_reference": "BACKUP-EVD-RedLedger-V1",
                 "storage_path": backup_path,
                 "original_sha256": genuine_hash,
                 "backup_sha256": genuine_hash,
@@ -319,7 +321,7 @@ async def ensure_demo_cases():
                 "created_by": chief_id,
                 "created_by_name": chief_name,
                 "status": "PROTECTED",
-                "created_at": now - timedelta(days=2)
+                "created_at": case_created_time
             }
             await backups_col.insert_one(backup_doc)
 
@@ -330,7 +332,7 @@ async def ensure_demo_cases():
                 "actor_id": chief_id,
                 "actor_name": chief_name,
                 "timestamp": now - timedelta(hours=1),
-                "details": "Unauthorized tampering CONFIRMED on 'phoenix_treasury_ledger_oct2026.csv'. Attribution: Suspect Malory (Rogue System Admin).",
+                "details": "Unauthorized tampering CONFIRMED on 'offshore_wire_transfer_ledger.csv'. Attributed actor: SUSPECT_INSIDER_HOST.",
                 "ip_address": "127.0.0.1",
                 "event_hash": hashlib.sha256(f"{evidence_id}:{case_id}:TAMPER_CONFIRMED:{now}".encode()).hexdigest()
             })
@@ -339,18 +341,29 @@ async def ensure_demo_cases():
             evidence_id = str(evidence_doc["_id"])
             sub_dir = os.path.join(working_dir, evidence_id)
             os.makedirs(sub_dir, exist_ok=True)
-            working_path = os.path.join(sub_dir, "phoenix_treasury_ledger_oct2026.csv")
-            if not os.path.exists(working_path):
-                with open(working_path, "wb") as f:
-                    f.write(tampered_bytes)
+            working_path = os.path.join(sub_dir, "offshore_wire_transfer_ledger.csv")
+            with open(working_path, "wb") as f:
+                f.write(tampered_bytes)
 
             await evidence_col.update_one(
                 {"_id": evidence_doc["_id"]},
-                {"$set": {"storage_path": working_path, "integrity_status": "TAMPERED", "has_original_backup": True}}
+                {"$set": {
+                    "storage_path": working_path,
+                    "sha256_hash": genuine_hash,
+                    "original_sha256_hash": genuine_hash,
+                    "calculated_hash": tampered_hash,
+                    "integrity_status": "TAMPERED",
+                    "has_original_backup": True
+                }}
             )
             await backups_col.update_one(
                 {"evidence_id": evidence_id},
-                {"$set": {"storage_path": backup_path, "status": "PROTECTED"}},
+                {"$set": {
+                    "storage_path": backup_path,
+                    "original_sha256": genuine_hash,
+                    "backup_sha256": genuine_hash,
+                    "status": "PROTECTED"
+                }},
                 upsert=True
             )
 

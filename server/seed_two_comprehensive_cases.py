@@ -36,7 +36,7 @@ async def seed_two_cases():
     inv_id = str(investigator["_id"])
 
     # Clean previous demo runs for these specific case numbers
-    target_case_numbers = ["DF-2026-000101", "DF-2026-000102"]
+    target_case_numbers = ["DF-2026-000101", "DF-2026-000102", "DF-2026-000002"]
     for cnum in target_case_numbers:
         old_case = await db["cases"].find_one({"case_number": cnum})
         if old_case:
@@ -357,53 +357,45 @@ async def seed_two_cases():
 
     case2_doc = {
         "_id": ObjectId(case2_id),
-        "case_number": "DF-2026-000002",
-        "title": "Operation Phoenix Vault — Unauthorized Treasury Tampering Inquiry",
-        "description": "High-security forensic inquiry into unauthorized treasury ledger byte tampering. Active disk file contains mutated beneficiary records; authentic original evidence is preserved in immutable backup storage.",
-        "status": "OPEN",
+        "case_number": "DF-2026-000102",
+        "title": "Operation Red Ledger — Financial Wire Fraud & Evidence Vault Tampering",
+        "description": "High-profile forensic inquiry into a $4,850,000.00 unauthorized treasury diversion. Suspect covertly accessed the evidence vault storage node to manipulate offshore wire transfer ledgers; authentic original evidence is preserved in the immutable backup vault.",
+        "status": "IN_PROGRESS",
         "priority": "CRITICAL",
         "case_type": "FINANCIAL_FRAUD",
-        "tags": ["TREASURY", "TAMPER_INVESTIGATION", "FINANCIAL_FRAUD", "LIVE_DEMO"],
+        "tags": ["FINANCIAL_FRAUD", "WIRE_TRANSFER", "EVIDENCE_TAMPERED", "LIVE_DEMO"],
         "created_by": ObjectId(admin_id),
-        "created_by_name": admin["name"],
+        "created_by_name": "Chief Investigator (Admin)",
         "assigned_investigator": ObjectId(admin_id),
-        "assigned_investigator_name": admin["name"],
-        "created_at": now - timedelta(days=3),
+        "assigned_investigator_name": "Chief Investigator (Admin)",
+        "created_at": datetime(2026, 10, 22, 18, 33, 0, tzinfo=timezone.utc),
         "updated_at": now,
         "notes": [
             {
-                "content": "Case initiated following audit discrepancy report on treasury wire transaction #PHX-2026-001.",
-                "author": admin["name"],
+                "content": "Case initiated following audit discrepancy report on treasury wire transaction #WT-2026-99482.",
+                "author": "Chief Investigator (Admin)",
                 "created_at": now - timedelta(days=3)
             },
             {
                 "content": "Original accounting wire ledger ingested into vault. Preserved original backup created and isolated.",
-                "author": admin["name"],
+                "author": "Chief Investigator (Admin)",
                 "created_at": now - timedelta(days=2)
             },
             {
-                "content": "CRITICAL TAMPER ALERT: Forensic verification detected SHA-256 hash drift on phoenix_treasury_ledger_oct2026.csv! Investigation confirmed active file was modified on disk. Attributed actor: Suspect Malory (Rogue System Admin).",
-                "author": admin["name"],
+                "content": "CRITICAL TAMPER ALERT: Forensic verification detected SHA-256 hash drift on offshore_wire_transfer_ledger.csv! Investigation confirmed active file was modified on disk. Attributed actor: SUSPECT_INSIDER_HOST.",
+                "author": "Chief Investigator (Admin)",
                 "created_at": now - timedelta(hours=6)
             }
         ]
     }
     await db["cases"].insert_one(case2_doc)
-    print(f"[+] Case 2 Inserted: DF-2026-000002 (ID: {case2_id})")
+    print(f"[+] Case 2 Inserted: DF-2026-000102 (ID: {case2_id})")
 
     # Exhibit 1: THE TAMPERED EXHIBIT
-    tampered_filename = "phoenix_treasury_ledger_oct2026.csv"
-    original_ledger_content = (
-        b"Transaction_ID,Timestamp,Sender,Beneficiary,Routing_SWIFT,Amount_USD,Authorization,Status\n"
-        b"PHX-2026-001,2026-10-29T00:30:00Z,Federal Reserve NY,Apex Escrow Custody,APEXUS33,5250000.00,AUTH_GENUINE_EXEC,SETTLED\n"
-        b"PHX-2026-002,2026-10-29T00:45:00Z,Federal Reserve NY,Standard Chartered London,SCBLGB2L,1800000.00,AUTH_GENUINE_EXEC,SETTLED\n"
-    )
-
-    tampered_ledger_content = (
-        b"Transaction_ID,Timestamp,Sender,Beneficiary,Routing_SWIFT,Amount_USD,Authorization,Status\n"
-        b"PHX-2026-001,2026-10-29T00:30:00Z,Federal Reserve NY,Rogue Cayman Shell Corp,CYMBKY99,9999999.00,AUTH_HACKED_BY_INSIDER,CONFIRMED_FRAUD\n"
-        b"PHX-2026-002,2026-10-29T00:45:00Z,Federal Reserve NY,Standard Chartered London,SCBLGB2L,1800000.00,AUTH_GENUINE_EXEC,SETTLED\n"
-    )
+    from app.routers.evidence import ORIGINAL_LEDGER_BYTES, TAMPERED_LEDGER_BYTES
+    tampered_filename = "offshore_wire_transfer_ledger.csv"
+    original_ledger_content = ORIGINAL_LEDGER_BYTES
+    tampered_ledger_content = TAMPERED_LEDGER_BYTES
 
     tampered_ev_id = str(ObjectId())
     tampered_file_path = os.path.join(case2_dir, f"{tampered_ev_id}_{tampered_filename}")

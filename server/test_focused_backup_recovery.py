@@ -38,9 +38,9 @@ async def test_tampered_evidence_backup_lifecycle():
         assert case_res.status_code == 200
         cases = case_res.json()["cases"]
         
-        # Locate Demo Tampered Case (Operation Phoenix Vault)
-        case2 = next((c for c in cases if "Phoenix Vault" in c.get("title", "") or "Tampering" in c.get("title", "") or c.get("case_number") == "DF-2026-000002"), None)
-        assert case2 is not None, "Demo Tampered Case (Operation Phoenix Vault) not found"
+        # Locate Demo Tampered Case (Operation Red Ledger)
+        case2 = next((c for c in cases if "Red Ledger" in c.get("title", "") or "Tampering" in c.get("title", "") or c.get("case_number") in ("DF-2026-000102", "DF-2026-000002")), None)
+        assert case2 is not None, "Demo Tampered Case (Operation Red Ledger) not found"
         case2_id = case2["_id"]
 
         ev_res = await client.get(f"/api/cases/{case2_id}/evidence", headers=chief_headers)
